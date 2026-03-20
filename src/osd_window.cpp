@@ -6,6 +6,25 @@
 #include <QFontMetrics>
 #include <QEasingCurve>
 #include <QPainter>
+#include <QPainterPath>
+
+namespace {
+QPixmap makeRoundedPixmap(const QPixmap &source, int targetSize, qreal radius) {
+    QPixmap scaled = source.scaled(targetSize, targetSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+
+    QPixmap result(targetSize, targetSize);
+    result.fill(Qt::transparent);
+
+    QPainter painter(&result);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    QPainterPath path;
+    path.addRoundedRect(QRectF(0, 0, targetSize, targetSize), radius, radius);
+    painter.setClipPath(path);
+    painter.drawPixmap(0, 0, scaled);
+
+    return result;
+}
+}
 
 class ScrollingLabel : public QWidget {
 public:
@@ -131,7 +150,7 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     albumArtLabel = new QLabel(this);
     albumArtLabel->setFixedSize(80, 80);
     albumArtLabel->setStyleSheet("border: none; border-radius: 6px; background-color: #2c2c2c; color: #1DB954; font-size: 32px;");
-    albumArtLabel->setScaledContents(true);
+    albumArtLabel->setScaledContents(false);
     albumArtLabel->setAlignment(Qt::AlignCenter);
     albumArtLabel->setText("🎵");
 
@@ -303,9 +322,12 @@ void OSDWindow::onImageDownloaded(QNetworkReply *reply) {
         QPixmap pixmap;
         if (pixmap.loadFromData(imageData)) {
             albumArtLabel->setText(""); // Clear fallback
-            albumArtLabel->setPixmap(pixmap.scaled(70, 70, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation));
+            albumArtLabel->setStyleSheet("border: none; border-radius: 6px; background: transparent;");
+            albumArtLabel->setPixmap(makeRoundedPixmap(pixmap, albumArtLabel->width(), 6.0));
         }
     } else {
+        albumArtLabel->setPixmap(QPixmap());
+        albumArtLabel->setStyleSheet("border: none; border-radius: 6px; background-color: #2c2c2c; color: #1DB954; font-size: 32px;");
         albumArtLabel->setText("🎵");
         qDebug() << "Image Download Error:" << reply->errorString();
     }

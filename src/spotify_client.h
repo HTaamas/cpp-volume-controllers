@@ -1,0 +1,52 @@
+#ifndef SPOTIFY_CLIENT_H
+#define SPOTIFY_CLIENT_H
+
+#include <QObject>
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QUrlQuery>
+#include <QDesktopServices>
+#include <QTcpServer>
+#include <QTcpSocket>
+
+class SpotifyClient : public QObject {
+    Q_OBJECT
+public:
+    explicit SpotifyClient(QObject *parent = nullptr);
+    void startAuth();
+    void setVolume(int volume);
+    void pollPlayback();
+
+signals:
+    void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs);
+    void stateSynced(int volume, int progressMs);
+    void authComplete();
+
+private slots:
+    void handleTokenResponse(QNetworkReply *reply);
+    void handlePlaybackResponse(QNetworkReply *reply);
+    void handleVolumeResponse(QNetworkReply *reply);
+    void onNewConnection();
+
+private:
+    void refreshAccessToken();
+    void saveTokens();
+    void loadTokens();
+
+    QNetworkAccessManager *network;
+    QString clientId;
+    QString clientSecret;
+    QString accessToken;
+    QString refreshToken;
+    QString lastTrackId;
+    int currentVolume = 50;
+
+    QTcpServer *authServer;
+    const int redirectPort = 8888;
+};
+
+#endif // SPOTIFY_CLIENT_H

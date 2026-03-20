@@ -4,6 +4,7 @@
 #include "tray_manager.h"
 #include "volume_handler_factory.h"
 #include <QDebug>
+#include <QElapsedTimer>
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
@@ -20,13 +21,34 @@ int main(int argc, char *argv[]) {
     QString currentArtUrl = "";
     int currentProgress = 0;
     int currentDuration = 0;
+    QElapsedTimer progressClock;
+
+    auto updateProgressBaseline = [&](int progressMs) {
+        currentProgress = progressMs;
+        if (progressClock.isValid()) {
+            progressClock.restart();
+        } else {
+            progressClock.start();
+        }
+    };
+
+    auto estimatedProgressNow = [&]() {
+        if (!progressClock.isValid()) {
+            return currentProgress;
+        }
+        int estimated = currentProgress + static_cast<int>(progressClock.elapsed());
+        if (currentDuration > 0) {
+            estimated = qBound(0, estimated, currentDuration);
+        }
+        return estimated;
+    };
 
     QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs) {
         currentVolume = volume;
         currentTrack = track;
         currentArtist = artist;
         currentArtUrl = albumArtUrl;
-        currentProgress = progressMs;
+        updateProgressBaseline(progressMs);
         currentDuration = durationMs;
         osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs);
         tray.updateTrackInfo(track, artist);
@@ -34,14 +56,14 @@ int main(int argc, char *argv[]) {
 
     QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs) {
         currentVolume = volume;
-        currentProgress = progressMs;
+        updateProgressBaseline(progressMs);
         osd.syncProgress(progressMs);
     });
 
     QObject::connect(&volHandler, &VolumeHandler::volumeChanged, [&](int delta) {
         currentVolume = qBound(0, currentVolume + delta, 100);
         spotify.setVolume(currentVolume);
-        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, currentProgress, currentDuration);
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration);
     });
 
     // Check if we need to auth

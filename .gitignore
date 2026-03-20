@@ -1,8 +1,10 @@
 .cache/
 build/
+build-mingw/
 .env
 
 # IDE - cache and temp files only
+.idea/
 .vscode/browse.VC.db
 .vscode/*.db
 .vscode/ipch/

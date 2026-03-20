@@ -3,6 +3,88 @@
 #include <QGuiApplication>
 #include <QFont>
 #include <QGraphicsDropShadowEffect>
+#include <QFontMetrics>
+
+class ScrollingLabel : public QWidget {
+public:
+    explicit ScrollingLabel(QWidget *parent = nullptr)
+        : QWidget(parent), label(new QLabel(this)), timer(new QTimer(this)) {
+        label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
+        label->move(0, 0);
+
+        timer->setInterval(30);
+        connect(timer, &QTimer::timeout, this, [this]() { tick(); });
+    }
+
+    void setText(const QString &text) {
+        fullText = text;
+        restart();
+    }
+
+    void setLabelStyleSheet(const QString &style) {
+        label->setStyleSheet(style);
+    }
+
+protected:
+    void resizeEvent(QResizeEvent *event) override {
+        QWidget::resizeEvent(event);
+        restart();
+    }
+
+private:
+    void restart() {
+        offsetPx = 0;
+        pauseTicks = 20;
+
+        const QFontMetrics fm(label->font());
+        const int textWidth = fm.horizontalAdvance(fullText);
+        const int gapWidth = fm.horizontalAdvance(QStringLiteral("     "));
+
+        if (textWidth <= width()) {
+            timer->stop();
+            label->setText(fullText);
+            label->setFixedSize(width(), height());
+            label->move(0, 0);
+            loopWidth = 0;
+            return;
+        }
+
+        const QString repeated = fullText + QStringLiteral("     ") + fullText;
+        label->setText(repeated);
+        const int repeatedWidth = fm.horizontalAdvance(repeated);
+        label->setFixedSize(repeatedWidth + 8, height());
+        label->move(0, 0);
+
+        loopWidth = textWidth + gapWidth;
+        timer->start();
+    }
+
+    void tick() {
+        if (loopWidth <= 0) {
+            return;
+        }
+
+        if (pauseTicks > 0) {
+            --pauseTicks;
+            return;
+        }
+
+        offsetPx += 1;
+        if (offsetPx >= loopWidth) {
+            offsetPx = 0;
+            pauseTicks = 20;
+        }
+
+        label->move(-offsetPx, 0);
+    }
+
+    QLabel *label;
+    QTimer *timer;
+    QString fullText;
+    int offsetPx = 0;
+    int loopWidth = 0;
+    int pauseTicks = 0;
+};
 
 OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAccessManager(this)) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool | Qt::WindowTransparentForInput | Qt::WindowDoesNotAcceptFocus);
@@ -30,11 +112,13 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     QVBoxLayout *textLayout = new QVBoxLayout();
     textLayout->setSpacing(2);
 
-    trackLabel = new QLabel(this);
-    trackLabel->setStyleSheet("color: #ffffff; font-weight: bold; font-size: 16px; border: none;");
+    trackLabel = new ScrollingLabel(this);
+    trackLabel->setLabelStyleSheet("color: #ffffff; font-weight: bold; font-size: 16px; border: none;");
+    trackLabel->setFixedHeight(24);
 
-    artistLabel = new QLabel(this);
-    artistLabel->setStyleSheet("color: #aaaaaa; font-size: 13px; border: none;");
+    artistLabel = new ScrollingLabel(this);
+    artistLabel->setLabelStyleSheet("color: #aaaaaa; font-size: 13px; border: none;");
+    artistLabel->setFixedHeight(20);
 
     volumeBar = new QProgressBar(this);
     volumeBar->setRange(0, 100);

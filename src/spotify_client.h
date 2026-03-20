@@ -12,7 +12,8 @@
 #include <QDesktopServices>
 #include <QTcpServer>
 #include <QTcpSocket>
-#include "app_config.h"
+#include <QElapsedTimer>
+#include <app_config.h>
 
 class SpotifyClient : public QObject {
     Q_OBJECT
@@ -45,6 +46,8 @@ private:
     QString refreshToken;
     QString lastTrackId;
     int currentVolume = 50;
+    int pendingVolume = -1;
+    QElapsedTimer pendingVolumeTimer;
 
     QTcpServer *authServer;
     const int redirectPort = AppConfig::REDIRECT_PORT;

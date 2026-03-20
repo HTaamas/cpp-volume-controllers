@@ -11,9 +11,13 @@ include(ParseEnv)
 # Generate config header from .env file
 set(ENV_FILE "${CMAKE_CURRENT_SOURCE_DIR}/.env")
 set(CONFIG_HEADER "${CMAKE_CURRENT_BINARY_DIR}/include/app_config.h")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ENV_FILE}")
 file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
 generate_config_header("${ENV_FILE}" "${CONFIG_HEADER}")
 
+if(WIN32)
+    set(CMAKE_PREFIX_PATH "C:\\Qt\\6.10.2\\mingw_64\\")
+endif()
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)

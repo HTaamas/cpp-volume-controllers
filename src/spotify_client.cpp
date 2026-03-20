@@ -1,5 +1,5 @@
 #include "spotify_client.h"
-#include "app_config.h"
+#include <app_config.h>
 #include <QSettings>
 #include <QDebug>
 #include <QProcessEnvironment>
@@ -79,6 +79,8 @@ void SpotifyClient::handleTokenResponse(QNetworkReply *reply) {
 void SpotifyClient::setVolume(int volume) {
     if (accessToken.isEmpty()) return;
     currentVolume = qBound(0, volume, 100);
+    pendingVolume = currentVolume;
+    pendingVolumeTimer.restart();
     
     QUrl url("https://api.spotify.com/v1/me/player/volume");
     QUrlQuery query;
@@ -133,7 +135,19 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         int progressMs = obj["progress_ms"].toInt();
         int durationMs = item["duration_ms"].toInt();
 
-        currentVolume = vol;
+        // Keep local volume changes stable for a short window until Spotify catches up.
+        int effectiveVolume = vol;
+        if (pendingVolume >= 0) {
+            if (qAbs(vol - pendingVolume) <= 1) {
+                pendingVolume = -1;
+            } else if (pendingVolumeTimer.isValid() && pendingVolumeTimer.elapsed() < 2500) {
+                effectiveVolume = pendingVolume;
+            } else {
+                pendingVolume = -1;
+            }
+        }
+
+        currentVolume = effectiveVolume;
         emit stateSynced(currentVolume, progressMs);
 
         if (trackId != lastTrackId) {
@@ -149,6 +163,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
 void SpotifyClient::handleVolumeResponse(QNetworkReply *reply) {
     if (reply->error() != QNetworkReply::NoError) {
         qDebug() << "Volume Error:" << reply->errorString();
+        pendingVolume = -1;
     }
     reply->deleteLater();
 }

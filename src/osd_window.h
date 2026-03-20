@@ -11,6 +11,8 @@
 #include <QNetworkReply>
 #include <QPixmap>
 
+class ScrollingLabel;
+
 class OSDWindow : public QWidget {
     Q_OBJECT
 public:
@@ -23,10 +25,11 @@ private slots:
     void updateSongProgress();
 
 private:
-    QLabel *trackLabel;
-    QLabel *artistLabel;
+    ScrollingLabel *trackLabel;
+    ScrollingLabel *artistLabel;
     QLabel *albumArtLabel;
     QLabel *timeLabel;
+    QLabel *volumeLabel;
     QProgressBar *volumeBar;
     QProgressBar *songProgressBar;
     QTimer *hideTimer;

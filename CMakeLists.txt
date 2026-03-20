@@ -4,6 +4,16 @@ project(SpotifyVol CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Include environment parsing
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(ParseEnv)
+
+# Generate config header from .env file
+set(ENV_FILE "${CMAKE_CURRENT_SOURCE_DIR}/.env")
+set(CONFIG_HEADER "${CMAKE_CURRENT_BINARY_DIR}/include/app_config.h")
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
+generate_config_header("${ENV_FILE}" "${CONFIG_HEADER}")
+
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
@@ -35,6 +45,9 @@ elseif(WIN32)
 endif()
 
 add_executable(${PROJECT_NAME} ${SOURCES})
+
+# Add generated config header include directory
+target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Qt6::Widgets 

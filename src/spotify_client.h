@@ -12,6 +12,7 @@
 #include <QDesktopServices>
 #include <QTcpServer>
 #include <QTcpSocket>
+#include "app_config.h"
 
 class SpotifyClient : public QObject {
     Q_OBJECT
@@ -38,15 +39,15 @@ private:
     void loadTokens();
 
     QNetworkAccessManager *network;
-    QString clientId;
-    QString clientSecret;
+    const QString clientId = AppConfig::SPOTIFY_CLIENT_ID;
+    const QString clientSecret = AppConfig::SPOTIFY_CLIENT_SECRET;
     QString accessToken;
     QString refreshToken;
     QString lastTrackId;
     int currentVolume = 50;
 
     QTcpServer *authServer;
-    const int redirectPort = 8888;
+    const int redirectPort = AppConfig::REDIRECT_PORT;
 };
 
 #endif // SPOTIFY_CLIENT_H

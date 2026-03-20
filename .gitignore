@@ -1,0 +1,8 @@
+.cache/
+build/
+.env
+
+# IDE - cache and temp files only
+.vscode/browse.VC.db
+.vscode/*.db
+.vscode/ipch/

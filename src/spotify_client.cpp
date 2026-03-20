@@ -134,6 +134,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         int vol = obj["device"].toObject()["volume_percent"].toInt();
         int progressMs = obj["progress_ms"].toInt();
         int durationMs = item["duration_ms"].toInt();
+        bool isPlaying = obj["is_playing"].toBool();
 
         // Keep local volume changes stable for a short window until Spotify catches up.
         int effectiveVolume = vol;
@@ -148,11 +149,11 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         }
 
         currentVolume = effectiveVolume;
-        emit stateSynced(currentVolume, progressMs);
+        emit stateSynced(currentVolume, progressMs, isPlaying);
 
         if (trackId != lastTrackId) {
             lastTrackId = trackId;
-            emit trackChanged(currentVolume, trackName, artistName, trackId, albumArtUrl, progressMs, durationMs);
+            emit trackChanged(currentVolume, trackName, artistName, trackId, albumArtUrl, progressMs, durationMs, isPlaying);
         }
     } else if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 401) {
         refreshAccessToken();

@@ -49,19 +49,24 @@ int main(int argc, char *argv[]) {
     QString currentArtUrl = "";
     int currentProgress = 0;
     int currentDuration = 0;
+    bool currentIsPlaying = false;
     QElapsedTimer progressClock;
 
-    auto updateProgressBaseline = [&](int progressMs) {
+    auto updateProgressBaseline = [&](int progressMs, bool isPlaying) {
         currentProgress = progressMs;
-        if (progressClock.isValid()) {
-            progressClock.restart();
-        } else {
-            progressClock.start();
+        currentIsPlaying = isPlaying;
+
+        if (currentIsPlaying) {
+            if (progressClock.isValid()) {
+                progressClock.restart();
+            } else {
+                progressClock.start();
+            }
         }
     };
 
     auto estimatedProgressNow = [&]() {
-        if (!progressClock.isValid()) {
+        if (!progressClock.isValid() || !currentIsPlaying) {
             return currentProgress;
         }
         int estimated = currentProgress + static_cast<int>(progressClock.elapsed());
@@ -71,27 +76,32 @@ int main(int argc, char *argv[]) {
         return estimated;
     };
 
-    QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs) {
+    QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying) {
         currentVolume = volume;
         currentTrack = track;
         currentArtist = artist;
         currentArtUrl = albumArtUrl;
-        updateProgressBaseline(progressMs);
+        updateProgressBaseline(progressMs, isPlaying);
         currentDuration = durationMs;
-        osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs);
+        osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs, isPlaying);
         tray.updateTrackInfo(track, artist);
     });
 
-    QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs) {
+    QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs, bool isPlaying) {
+        const bool playbackStateChanged = (isPlaying != currentIsPlaying);
         currentVolume = volume;
-        updateProgressBaseline(progressMs);
-        osd.syncProgress(progressMs);
+        updateProgressBaseline(progressMs, isPlaying);
+        osd.syncProgress(progressMs, isPlaying);
+
+        if (playbackStateChanged) {
+            osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, progressMs, currentDuration, currentIsPlaying);
+        }
     });
 
     QObject::connect(&volHandler, &VolumeHandler::volumeChanged, [&](int delta) {
         currentVolume = qBound(0, currentVolume + delta, 100);
         spotify.setVolume(currentVolume);
-        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration);
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying);
     });
 
     // Check if we need to auth

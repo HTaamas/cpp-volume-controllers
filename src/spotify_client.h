@@ -24,8 +24,8 @@ public:
     void pollPlayback();
 
 signals:
-    void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs);
-    void stateSynced(int volume, int progressMs);
+    void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying);
+    void stateSynced(int volume, int progressMs, bool isPlaying);
     void authComplete();
 
 private slots:

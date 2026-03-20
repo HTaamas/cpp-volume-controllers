@@ -4,6 +4,8 @@
 #include <QFont>
 #include <QGraphicsDropShadowEffect>
 #include <QFontMetrics>
+#include <QEasingCurve>
+#include <QPainter>
 
 class ScrollingLabel : public QWidget {
 public:
@@ -107,6 +109,33 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     albumArtLabel->setScaledContents(true);
     albumArtLabel->setAlignment(Qt::AlignCenter);
     albumArtLabel->setText("🎵");
+
+    pauseOverlay = new QLabel(albumArtLabel);
+    pauseOverlay->setFixedSize(albumArtLabel->size());
+    pauseOverlay->setAlignment(Qt::AlignCenter);
+    QPixmap pauseIcon(20, 20);
+    pauseIcon.fill(Qt::transparent);
+    {
+        QPainter painter(&pauseIcon);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(QColor(255, 255, 255, 235));
+        painter.drawRoundedRect(QRectF(4, 3, 4, 14), 1.5, 1.5);
+        painter.drawRoundedRect(QRectF(12, 3, 4, 14), 1.5, 1.5);
+    }
+    pauseOverlay->setPixmap(pauseIcon);
+    pauseOverlay->setStyleSheet("background-color: rgba(0, 0, 0, 110); border-radius: 6px; border: none;");
+    pauseOverlay->move(0, 0);
+
+    pauseOverlayEffect = new QGraphicsOpacityEffect(pauseOverlay);
+    pauseOverlayEffect->setOpacity(0.0);
+    pauseOverlay->setGraphicsEffect(pauseOverlayEffect);
+
+    pauseOverlayFade = new QPropertyAnimation(pauseOverlayEffect, "opacity", this);
+    pauseOverlayFade->setDuration(200);
+    pauseOverlayFade->setEasingCurve(QEasingCurve::InOutQuad);
+
+    pauseOverlay->show();
     hLayout->addWidget(albumArtLabel);
 
     QVBoxLayout *textLayout = new QVBoxLayout();
@@ -177,13 +206,15 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     connect(progressTimer, &QTimer::timeout, this, &OSDWindow::updateSongProgress);
 }
 
-void OSDWindow::showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl, int progressMs, int durationMs) {
+void OSDWindow::showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying) {
     trackLabel->setText(track.isEmpty() ? "Loading..." : track);
     artistLabel->setText(artist.isEmpty() ? "Spotify" : artist);
     volumeBar->setValue(volume);
 
     currentProgressMs = progressMs;
     totalDurationMs = durationMs;
+    isPlayingNow = isPlaying;
+    setPausedOverlayVisible(!isPlayingNow);
     songProgressBar->setRange(0, durationMs);
     songProgressBar->setValue(progressMs);
     timeLabel->setText(formatTime(progressMs) + " / " + formatTime(durationMs));
@@ -209,16 +240,25 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
     }
 }
 
-void OSDWindow::syncProgress(int progressMs) {
+void OSDWindow::syncProgress(int progressMs, bool isPlaying) {
     currentProgressMs = progressMs;
+    isPlayingNow = isPlaying;
+    setPausedOverlayVisible(!isPlayingNow);
     if (isVisible()) {
         songProgressBar->setValue(currentProgressMs);
         timeLabel->setText(formatTime(currentProgressMs) + " / " + formatTime(totalDurationMs));
     }
 }
 
+void OSDWindow::setPausedOverlayVisible(bool visible) {
+    pauseOverlayFade->stop();
+    pauseOverlayFade->setStartValue(pauseOverlayEffect->opacity());
+    pauseOverlayFade->setEndValue(visible ? 1.0 : 0.0);
+    pauseOverlayFade->start();
+}
+
 void OSDWindow::updateSongProgress() {
-    if (totalDurationMs > 0 && currentProgressMs < totalDurationMs) {
+    if (isPlayingNow && totalDurationMs > 0 && currentProgressMs < totalDurationMs) {
         currentProgressMs += 100;
         songProgressBar->setValue(currentProgressMs);
         timeLabel->setText(formatTime(currentProgressMs) + " / " + formatTime(totalDurationMs));

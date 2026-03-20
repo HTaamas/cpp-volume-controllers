@@ -2,18 +2,46 @@
 #include "spotify_client.h"
 #include "osd_window.h"
 #include "tray_manager.h"
-#include "volume_handler_factory.h"
+#include "volume_handler.h"
+#include <QMessageBox>
+#include <QMetaObject>
+#include <atomic>
+#include <exception>
 #include <QDebug>
 #include <QElapsedTimer>
+
+namespace {
+void appMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg) {
+    static std::atomic_bool dialogQueued{false};
+
+    if (type == QtCriticalMsg || type == QtFatalMsg) {
+        if (QApplication::instance() && !dialogQueued.exchange(true)) {
+            const QString errorText = msg;
+            QMetaObject::invokeMethod(QApplication::instance(), [errorText]() {
+                QMessageBox::critical(nullptr, "SpotifyVol Error", errorText);
+                dialogQueued.store(false);
+            }, Qt::QueuedConnection);
+        }
+    }
+
+    const QByteArray local = msg.toLocal8Bit();
+    fprintf(stderr, "%s\n", local.constData());
+
+    if (type == QtFatalMsg) {
+        abort();
+    }
+}
+}
 
 int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
+    qInstallMessageHandler(appMessageHandler);
 
     SpotifyClient spotify;
     OSDWindow osd;
     TrayManager tray;
-    VolumeHandlerImpl volHandler;
+    VolumeHandler volHandler;
 
     int currentVolume = 50;
     QString currentTrack = "Loading...";
@@ -74,5 +102,13 @@ int main(int argc, char *argv[]) {
         // spotify.startAuth();
     });
 
-    return app.exec();
+    try {
+        return app.exec();
+    } catch (const std::exception &ex) {
+        QMessageBox::critical(nullptr, "SpotifyVol Fatal Error", QString("Unhandled exception: %1").arg(ex.what()));
+    } catch (...) {
+        QMessageBox::critical(nullptr, "SpotifyVol Fatal Error", "Unhandled unknown exception.");
+    }
+
+    return 1;
 }

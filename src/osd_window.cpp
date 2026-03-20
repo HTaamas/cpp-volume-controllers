@@ -10,15 +10,25 @@
 class ScrollingLabel : public QWidget {
 public:
     explicit ScrollingLabel(QWidget *parent = nullptr)
-        : QWidget(parent), label(new QLabel(this)), timer(new QTimer(this)) {
+        : QWidget(parent), label(new QLabel(this)), timer(new QTimer(this)), leftFade(new QWidget(this)), rightFade(new QWidget(this)) {
         label->setAlignment(Qt::AlignVCenter | Qt::AlignLeft);
         label->move(0, 0);
+
+        leftFade->setAttribute(Qt::WA_TransparentForMouseEvents);
+        rightFade->setAttribute(Qt::WA_TransparentForMouseEvents);
+        leftFade->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(28,28,28,255), stop:1 rgba(28,28,28,0)); border: none;");
+        rightFade->setStyleSheet("background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 rgba(28,28,28,0), stop:1 rgba(28,28,28,255)); border: none;");
+        leftFade->hide();
+        rightFade->hide();
 
         timer->setInterval(30);
         connect(timer, &QTimer::timeout, this, [this]() { tick(); });
     }
 
     void setText(const QString &text) {
+        if (fullText == text) {
+            return;
+        }
         fullText = text;
         restart();
     }
@@ -30,6 +40,12 @@ public:
 protected:
     void resizeEvent(QResizeEvent *event) override {
         QWidget::resizeEvent(event);
+
+        leftFade->setGeometry(0, 0, edgeFadePx, height());
+        rightFade->setGeometry(width() - edgeFadePx, 0, edgeFadePx, height());
+        leftFade->raise();
+        rightFade->raise();
+
         restart();
     }
 
@@ -48,6 +64,8 @@ private:
             label->setFixedSize(width(), height());
             label->move(0, 0);
             loopWidth = 0;
+            leftFade->hide();
+            rightFade->hide();
             return;
         }
 
@@ -58,6 +76,10 @@ private:
         label->move(0, 0);
 
         loopWidth = textWidth + gapWidth;
+        leftFade->show();
+        rightFade->show();
+        leftFade->raise();
+        rightFade->raise();
         timer->start();
     }
 
@@ -86,6 +108,9 @@ private:
     int offsetPx = 0;
     int loopWidth = 0;
     int pauseTicks = 0;
+    QWidget *leftFade;
+    QWidget *rightFade;
+    const int edgeFadePx = 8;
 };
 
 OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAccessManager(this)) {

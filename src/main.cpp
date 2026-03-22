@@ -10,6 +10,11 @@
 #include <QDebug>
 #include <QElapsedTimer>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 namespace {
 void appMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg) {
     static std::atomic_bool dialogQueued{false};
@@ -31,9 +36,69 @@ void appMessageHandler(QtMsgType type, const QMessageLogContext &, const QString
         abort();
     }
 }
+
+#ifdef _WIN32
+bool isProcessElevated() {
+    SID_IDENTIFIER_AUTHORITY ntAuthority = SECURITY_NT_AUTHORITY;
+    PSID adminGroup = nullptr;
+    BOOL isMember = FALSE;
+
+    if (!AllocateAndInitializeSid(
+            &ntAuthority,
+            2,
+            SECURITY_BUILTIN_DOMAIN_RID,
+            DOMAIN_ALIAS_RID_ADMINS,
+            0, 0, 0, 0, 0, 0,
+            &adminGroup)) {
+        return false;
+    }
+
+    const BOOL checkResult = CheckTokenMembership(nullptr, adminGroup, &isMember);
+    FreeSid(adminGroup);
+
+    return checkResult && isMember;
+}
+
+bool ensureAdminPrivileges() {
+    if (isProcessElevated()) {
+        return true;
+    }
+
+    wchar_t exePath[MAX_PATH] = {0};
+    if (GetModuleFileNameW(nullptr, exePath, MAX_PATH) > 0) {
+        const HINSTANCE elevateResult = ShellExecuteW(
+            nullptr,
+            L"runas",
+            exePath,
+            nullptr,
+            nullptr,
+            SW_SHOWNORMAL
+        );
+        if (reinterpret_cast<INT_PTR>(elevateResult) > 32) {
+            // Relaunch succeeded; current non-elevated process should exit.
+            return false;
+        }
+    }
+
+    MessageBoxW(
+        nullptr,
+        L"SpotifyVol requires administrator privileges and could not auto-elevate.",
+        L"SpotifyVol",
+        MB_OK | MB_ICONERROR
+    );
+
+    return false;
+}
+#endif
 }
 
 int main(int argc, char *argv[]) {
+#ifdef _WIN32
+    if (!ensureAdminPrivileges()) {
+        return 0;
+    }
+#endif
+
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
     qInstallMessageHandler(appMessageHandler);

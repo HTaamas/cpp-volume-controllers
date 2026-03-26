@@ -56,6 +56,27 @@ public:
         label->setStyleSheet(style);
     }
 
+    void setScrollingEnabled(bool enabled) {
+        scrollingEnabled = enabled;
+
+        if (loopWidth <= 0) {
+            timer->stop();
+            updateFadeVisibility();
+            return;
+        }
+
+        if (scrollingEnabled) {
+            timer->start();
+        } else {
+            timer->stop();
+            offsetPx = 0;
+            pauseTicks = 20;
+            label->move(0, 0);
+        }
+
+        updateFadeVisibility();
+    }
+
 protected:
     void resizeEvent(QResizeEvent *event) override {
         QWidget::resizeEvent(event);
@@ -73,11 +94,14 @@ private:
         offsetPx = 0;
         pauseTicks = 20;
 
-        const QFontMetrics fm(label->font());
-        const int textWidth = fm.horizontalAdvance(fullText);
-        const int gapWidth = fm.horizontalAdvance(QStringLiteral("     "));
+        label->setText(fullText);
+        const QFontMetrics metrics = label->fontMetrics();
+        const int textWidth = metrics.horizontalAdvance(fullText);
 
-        if (textWidth <= width()) {
+        label->setText(QStringLiteral("     "));
+        const int gapWidth = metrics.horizontalAdvance(QStringLiteral("     "));
+
+        if (textWidth <= contentsRect().width() + 2) {
             timer->stop();
             label->setText(fullText);
             label->setFixedSize(width(), height());
@@ -90,16 +114,17 @@ private:
 
         const QString repeated = fullText + QStringLiteral("     ") + fullText;
         label->setText(repeated);
-        const int repeatedWidth = fm.horizontalAdvance(repeated);
-        label->setFixedSize(repeatedWidth + 8, height());
+        const int repeatedWidth = metrics.horizontalAdvance(repeated);
+        label->setFixedSize(repeatedWidth, height());
         label->move(0, 0);
 
         loopWidth = textWidth + gapWidth;
-        leftFade->show();
-        rightFade->show();
-        leftFade->raise();
-        rightFade->raise();
-        timer->start();
+        if (scrollingEnabled) {
+            timer->start();
+        } else {
+            timer->stop();
+        }
+        updateFadeVisibility();
     }
 
     void tick() {
@@ -119,6 +144,25 @@ private:
         }
 
         label->move(-offsetPx, 0);
+        updateFadeVisibility();
+    }
+
+    void updateFadeVisibility() {
+        if (loopWidth <= 0) {
+            leftFade->hide();
+            rightFade->hide();
+            return;
+        }
+
+        rightFade->show();
+        rightFade->raise();
+
+        if (offsetPx > 0 && scrollingEnabled) {
+            leftFade->show();
+            leftFade->raise();
+        } else {
+            leftFade->hide();
+        }
     }
 
     QLabel *label;
@@ -127,6 +171,7 @@ private:
     int offsetPx = 0;
     int loopWidth = 0;
     int pauseTicks = 0;
+    bool scrollingEnabled = true;
     QWidget *leftFade;
     QWidget *rightFade;
     const int edgeFadePx = 8;
@@ -258,6 +303,8 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
     currentProgressMs = progressMs;
     totalDurationMs = durationMs;
     isPlayingNow = isPlaying;
+    trackLabel->setScrollingEnabled(isPlayingNow);
+    artistLabel->setScrollingEnabled(isPlayingNow);
     setPausedOverlayVisible(!isPlayingNow);
     songProgressBar->setRange(0, durationMs);
     songProgressBar->setValue(progressMs);
@@ -287,6 +334,8 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
 void OSDWindow::syncProgress(int progressMs, bool isPlaying) {
     currentProgressMs = progressMs;
     isPlayingNow = isPlaying;
+    trackLabel->setScrollingEnabled(isPlayingNow);
+    artistLabel->setScrollingEnabled(isPlayingNow);
     setPausedOverlayVisible(!isPlayingNow);
     if (isVisible()) {
         songProgressBar->setValue(currentProgressMs);

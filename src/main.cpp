@@ -5,6 +5,8 @@
 #include "volume_handler.h"
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QIcon>
+#include <QDir>
 #include <atomic>
 #include <exception>
 #include <QDebug>
@@ -15,7 +17,19 @@
 #include <shellapi.h>
 #endif
 
+#ifdef __APPLE__
+void configureMacApplicationBehavior();
+#endif
+
 namespace {
+QString bundledAppIconPath() {
+#ifdef __APPLE__
+    return QDir(QCoreApplication::applicationDirPath()).filePath("../Resources/app_icon.png");
+#else
+    return QDir(QCoreApplication::applicationDirPath()).filePath("app_icon.png");
+#endif
+}
+
 void appMessageHandler(QtMsgType type, const QMessageLogContext &, const QString &msg) {
     static std::atomic_bool dialogQueued{false};
 
@@ -90,6 +104,7 @@ bool ensureAdminPrivileges() {
     return false;
 }
 #endif
+
 }
 
 int main(int argc, char *argv[]) {
@@ -102,6 +117,10 @@ int main(int argc, char *argv[]) {
     QApplication app(argc, argv);
     app.setQuitOnLastWindowClosed(false);
     qInstallMessageHandler(appMessageHandler);
+    app.setWindowIcon(QIcon(bundledAppIconPath()));
+#ifdef __APPLE__
+    configureMacApplicationBehavior();
+#endif
 
     SpotifyClient spotify;
     OSDWindow osd;

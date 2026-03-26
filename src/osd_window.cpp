@@ -11,6 +11,8 @@
 
 #ifdef __APPLE__
 void applyMacOverlayWindowBehavior(QWidget *widget);
+void prepareMacOverlayFocusRestore();
+void restoreMacOverlayFocus();
 #endif
 
 namespace {
@@ -185,8 +187,15 @@ private:
 OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAccessManager(this)) {
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool | Qt::WindowTransparentForInput | Qt::WindowDoesNotAcceptFocus);
     setAttribute(Qt::WA_TranslucentBackground);
-    setAttribute(Qt::WA_ShowWithoutActivating);
+    setAttribute(Qt::WA_ShowWithoutActivating, true);
     applyPlatformOverlayBehavior();
+    setFocusPolicy(Qt::NoFocus);
+    setWindowModality(Qt::NonModal);
+    clearFocus();
+
+#if defined(Q_OS_LINUX)
+    setAttribute(Qt::WA_X11DoNotAcceptFocus, true);
+#endif
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -331,14 +340,26 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
         QNetworkReply *reply = network->get(request);
         connect(reply, &QNetworkReply::finished, [this, reply]() {
             onImageDownloaded(reply);
+#ifdef __APPLE__
+            prepareMacOverlayFocusRestore();
+#endif
             applyPlatformOverlayBehavior();
             this->show();
+#ifdef __APPLE__
+            restoreMacOverlayFocus();
+#endif
             hideTimer->start(3500);
             progressTimer->start(100);
         });
     } else {
+#ifdef __APPLE__
+        prepareMacOverlayFocusRestore();
+#endif
         applyPlatformOverlayBehavior();
         show();
+#ifdef __APPLE__
+        restoreMacOverlayFocus();
+#endif
         hideTimer->start(3500);
         progressTimer->start(100);
     }

@@ -3,6 +3,24 @@
 #ifdef __APPLE__
 #import <AppKit/AppKit.h>
 
+static NSRunningApplication *gLastExternalFrontmostApp = nil;
+
+void prepareMacOverlayFocusRestore() {
+    NSRunningApplication *currentFrontmost = [[NSWorkspace sharedWorkspace] frontmostApplication];
+    if (currentFrontmost && currentFrontmost != [NSRunningApplication currentApplication]) {
+        gLastExternalFrontmostApp = currentFrontmost;
+    }
+}
+
+void restoreMacOverlayFocus() {
+    NSRunningApplication *previousFrontmost = gLastExternalFrontmostApp;
+    if (previousFrontmost && !previousFrontmost.terminated) {
+        [previousFrontmost activateWithOptions:0];
+    } else {
+        [[NSApplication sharedApplication] deactivate];
+    }
+}
+
 void applyMacOverlayWindowBehavior(QWidget *widget) {
     if (!widget) {
         return;
@@ -44,6 +62,12 @@ void applyMacOverlayWindowBehavior(QWidget *widget) {
     if ([window respondsToSelector:@selector(setBecomesKeyOnlyIfNeeded:)]) {
         [(id)window setBecomesKeyOnlyIfNeeded:YES];
     }
-    [window orderFrontRegardless];
+    [window orderFront:nil];
+    if ([window isKeyWindow]) {
+        [window resignKeyWindow];
+    }
+    if ([window isMainWindow]) {
+        [window resignMainWindow];
+    }
 }
 #endif

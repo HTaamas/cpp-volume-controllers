@@ -35,6 +35,8 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
+set(APP_ICON_ASSET "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.png")
+
 set(SOURCES
     src/main.cpp
     src/spotify_client.cpp
@@ -52,8 +54,10 @@ if(WIN32)
 endif()
 
 if(APPLE)
+    list(APPEND SOURCES src/app_behavior_mac.mm)
     list(APPEND SOURCES src/volume_handler_mac.mm)
     list(APPEND SOURCES src/osd_window_mac.mm)
+    list(APPEND SOURCES "${APP_ICON_ASSET}")
 endif()
 
 add_executable(${PROJECT_NAME} ${SOURCES})
@@ -73,6 +77,11 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${APP_ICON_ASSET}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/app_icon.png"
+    )
     set_target_properties(${PROJECT_NAME} PROPERTIES
         WIN32_EXECUTABLE TRUE
     )
@@ -83,6 +92,15 @@ if(WIN32)
 endif()
 
 if(APPLE)
+    set_source_files_properties("${APP_ICON_ASSET}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+    add_executable(set_bundle_icon_mac src/set_bundle_icon_mac.mm)
+    target_link_libraries(set_bundle_icon_mac PRIVATE "-framework AppKit")
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND $<TARGET_FILE:set_bundle_icon_mac>
+            "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>"
+            "${APP_ICON_ASSET}"
+        VERBATIM
+    )
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "SpotifyVol"
@@ -95,5 +113,13 @@ if(APPLE)
         "-framework AppKit"
         "-framework ApplicationServices"
         "-framework IOKit"
+    )
+endif()
+
+if(UNIX AND NOT APPLE)
+    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${APP_ICON_ASSET}"
+            "$<TARGET_FILE_DIR:${PROJECT_NAME}>/app_icon.png"
     )
 endif()

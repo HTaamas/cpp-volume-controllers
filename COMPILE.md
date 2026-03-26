@@ -76,3 +76,57 @@ cmake --build build-mingw -j
 ```powershell
 $env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 ```
+
+# macOS Build
+
+On macOS, the app now builds as a proper `.app` bundle instead of a terminal-style executable.
+
+## Build Commands (macOS)
+
+Run these from the project root.
+
+```bash
+cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release
+cmake --build build-mac -j
+```
+
+Bundle output:
+
+- `build-mac/SpotifyVol.app`
+
+Run it with:
+
+```bash
+open build-mac/SpotifyVol.app
+```
+
+# Linux Build
+
+Linux can build the Qt app already, but the current codebase does not yet implement native global volume-key interception there. In practice, that means the Spotify UI, OSD, tray icon, auth flow, and playback polling can work on Linux, but media-key suppression/hijacking is still a future platform-specific task.
+
+## Build Commands (Linux)
+
+Run these from the project root.
+
+```bash
+cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
+cmake --build build-linux -j
+```
+
+Output executable:
+
+- `build-linux/SpotifyVol`
+
+Run it with:
+
+```bash
+./build-linux/SpotifyVol
+```
+
+## Linux Notes
+
+- Install Qt 6 development packages for `Widgets`, `Gui`, and `Network`.
+- Install X11 development headers/libraries so the global volume-key hook can build.
+- A system tray is required for the tray icon to appear normally.
+- Global volume-key interception is implemented for X11 sessions.
+- Wayland sessions usually do not allow global key suppression, so the Linux hook will log that limitation and remain disabled there.

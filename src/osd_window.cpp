@@ -7,6 +7,11 @@
 #include <QEasingCurve>
 #include <QPainter>
 #include <QPainterPath>
+#include <QCursor>
+
+#ifdef __APPLE__
+void applyMacOverlayWindowBehavior(QWidget *widget);
+#endif
 
 namespace {
 QPixmap makeRoundedPixmap(const QPixmap &source, int targetSize, qreal radius) {
@@ -181,6 +186,7 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     setWindowFlags(Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint | Qt::Tool | Qt::WindowTransparentForInput | Qt::WindowDoesNotAcceptFocus);
     setAttribute(Qt::WA_TranslucentBackground);
     setAttribute(Qt::WA_ShowWithoutActivating);
+    applyPlatformOverlayBehavior();
 
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
@@ -238,18 +244,18 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     artistLabel->setLabelStyleSheet("color: #aaaaaa; font-size: 13px; border: none;");
     artistLabel->setFixedHeight(20);
 
+    volumeLabel = new QLabel(this);
+    volumeLabel->setFixedHeight(18);
+    volumeLabel->setAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+
     volumeBar = new QProgressBar(this);
     volumeBar->setRange(0, 100);
     volumeBar->setTextVisible(false);
     volumeBar->setFixedHeight(8);
-    volumeBar->setStyleSheet(
-        "QProgressBar { background-color: #333333; border: none; border-radius: 4px; }"
-        "QProgressBar::chunk { background-color: #1DB954; border-radius: 4px; }"
-    );
 
     // Song Progress Area
     QVBoxLayout *progressArea = new QVBoxLayout();
-    progressArea->setSpacing(2);
+    progressArea->setSpacing(3);
 
     songProgressBar = new QProgressBar(this);
     songProgressBar->setTextVisible(false);
@@ -263,14 +269,20 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     timeLabel->setStyleSheet("color: #888888; font-size: 11px; font-family: monospace; border: none;");
     timeLabel->setAlignment(Qt::AlignRight);
 
+    QHBoxLayout *statusRow = new QHBoxLayout();
+    statusRow->setContentsMargins(0, 0, 0, 0);
+    statusRow->setSpacing(8);
+    statusRow->addWidget(volumeLabel, 1);
+    statusRow->addWidget(timeLabel, 0);
+
     progressArea->addWidget(songProgressBar);
-    progressArea->addWidget(timeLabel);
+    progressArea->addLayout(statusRow);
 
     textLayout->addWidget(trackLabel);
     textLayout->addWidget(artistLabel);
     textLayout->addStretch(); // Move stretch here to push progress and volume to the bottom
     textLayout->addLayout(progressArea);
-    textLayout->addSpacing(2); // Small gap between progress and volume
+    textLayout->addSpacing(3); // Small gap between status row and volume bar
     textLayout->addWidget(volumeBar);
 
     hLayout->addLayout(textLayout);
@@ -280,9 +292,7 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
 
     setFixedSize(440, 110); // Exactly album art (80) + top margin (15) + bottom margin (15)
 
-    QScreen *screen = QGuiApplication::primaryScreen();
-    QRect screenGeometry = screen->availableGeometry();
-    move(screenGeometry.width() / 2 - width() / 2, screenGeometry.height() - 180);
+    positionOnActiveScreen();
 
     hideTimer = new QTimer(this);
     hideTimer->setSingleShot(true);
@@ -293,9 +303,12 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
 
     progressTimer = new QTimer(this);
     connect(progressTimer, &QTimer::timeout, this, &OSDWindow::updateSongProgress);
+
+    updateVolumeVisualState();
 }
 
-void OSDWindow::showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying) {
+void OSDWindow::showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported) {
+    positionOnActiveScreen();
     trackLabel->setText(track.isEmpty() ? "Loading..." : track);
     artistLabel->setText(artist.isEmpty() ? "Spotify" : artist);
     volumeBar->setValue(volume);
@@ -303,9 +316,11 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
     currentProgressMs = progressMs;
     totalDurationMs = durationMs;
     isPlayingNow = isPlaying;
+    volumeControlSupportedNow = volumeControlSupported;
     trackLabel->setScrollingEnabled(isPlayingNow);
     artistLabel->setScrollingEnabled(isPlayingNow);
     setPausedOverlayVisible(!isPlayingNow);
+    updateVolumeVisualState();
     songProgressBar->setRange(0, durationMs);
     songProgressBar->setValue(progressMs);
     timeLabel->setText(formatTime(progressMs) + " / " + formatTime(durationMs));
@@ -316,31 +331,50 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
         QNetworkReply *reply = network->get(request);
         connect(reply, &QNetworkReply::finished, [this, reply]() {
             onImageDownloaded(reply);
-            // Only show after image is ready
+            applyPlatformOverlayBehavior();
             this->show();
-            this->raise();
             hideTimer->start(3500);
             progressTimer->start(100);
         });
     } else {
-        // If no new image, show immediately
+        applyPlatformOverlayBehavior();
         show();
-        raise();
         hideTimer->start(3500);
         progressTimer->start(100);
     }
 }
 
-void OSDWindow::syncProgress(int progressMs, bool isPlaying) {
+void OSDWindow::syncProgress(int progressMs, bool isPlaying, bool volumeControlSupported) {
     currentProgressMs = progressMs;
     isPlayingNow = isPlaying;
+    volumeControlSupportedNow = volumeControlSupported;
     trackLabel->setScrollingEnabled(isPlayingNow);
     artistLabel->setScrollingEnabled(isPlayingNow);
     setPausedOverlayVisible(!isPlayingNow);
+    updateVolumeVisualState();
     if (isVisible()) {
         songProgressBar->setValue(currentProgressMs);
         timeLabel->setText(formatTime(currentProgressMs) + " / " + formatTime(totalDurationMs));
     }
+}
+
+void OSDWindow::updateVolumeVisualState() {
+    if (volumeControlSupportedNow) {
+        volumeLabel->setText(QString("Volume %1%").arg(volumeBar->value()));
+        volumeLabel->setStyleSheet("color: #cfd8d3; font-size: 12px; font-weight: 600; border: none;");
+        volumeBar->setStyleSheet(
+            "QProgressBar { background-color: #333333; border: none; border-radius: 4px; }"
+            "QProgressBar::chunk { background-color: #1DB954; border-radius: 4px; }"
+        );
+        return;
+    }
+
+    volumeLabel->setText("Volume unavailable on this device");
+    volumeLabel->setStyleSheet("color: #9ab6a7; font-size: 12px; font-weight: 600; border: none;");
+    volumeBar->setStyleSheet(
+        "QProgressBar { background-color: #2e3834; border: none; border-radius: 4px; }"
+        "QProgressBar::chunk { background-color: #6f8f7c; border-radius: 4px; }"
+    );
 }
 
 void OSDWindow::setPausedOverlayVisible(bool visible) {
@@ -356,6 +390,31 @@ void OSDWindow::updateSongProgress() {
         songProgressBar->setValue(currentProgressMs);
         timeLabel->setText(formatTime(currentProgressMs) + " / " + formatTime(totalDurationMs));
     }
+}
+
+void OSDWindow::positionOnActiveScreen() {
+    QScreen *targetScreen = this->screen();
+    if (!targetScreen) {
+        targetScreen = QGuiApplication::screenAt(QCursor::pos());
+    }
+    if (!targetScreen) {
+        targetScreen = QGuiApplication::primaryScreen();
+    }
+    if (!targetScreen) {
+        return;
+    }
+
+    const QRect screenGeometry = targetScreen->availableGeometry();
+    move(
+        screenGeometry.x() + (screenGeometry.width() - width()) / 2,
+        screenGeometry.y() + screenGeometry.height() - 180
+    );
+}
+
+void OSDWindow::applyPlatformOverlayBehavior() {
+#ifdef __APPLE__
+    applyMacOverlayWindowBehavior(this);
+#endif
 }
 
 QString OSDWindow::formatTime(int ms) {

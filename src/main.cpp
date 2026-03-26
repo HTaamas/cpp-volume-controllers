@@ -115,6 +115,7 @@ int main(int argc, char *argv[]) {
     int currentProgress = 0;
     int currentDuration = 0;
     bool currentIsPlaying = false;
+    bool currentVolumeControlSupported = true;
     QElapsedTimer progressClock;
 
     auto updateProgressBaseline = [&](int progressMs, bool isPlaying) {
@@ -141,32 +142,41 @@ int main(int argc, char *argv[]) {
         return estimated;
     };
 
-    QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying) {
+    QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported) {
         currentVolume = volume;
         currentTrack = track;
         currentArtist = artist;
         currentArtUrl = albumArtUrl;
+        currentVolumeControlSupported = volumeControlSupported;
         updateProgressBaseline(progressMs, isPlaying);
         currentDuration = durationMs;
-        osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs, isPlaying);
+        osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs, isPlaying, volumeControlSupported);
         tray.updateTrackInfo(track, artist);
     });
 
-    QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs, bool isPlaying) {
+    QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs, bool isPlaying, bool volumeControlSupported) {
         const bool playbackStateChanged = (isPlaying != currentIsPlaying);
         currentVolume = volume;
+        currentVolumeControlSupported = volumeControlSupported;
         updateProgressBaseline(progressMs, isPlaying);
-        osd.syncProgress(progressMs, isPlaying);
+        osd.syncProgress(progressMs, isPlaying, volumeControlSupported);
 
         if (playbackStateChanged) {
-            osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, progressMs, currentDuration, currentIsPlaying);
+            osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, progressMs, currentDuration, currentIsPlaying, currentVolumeControlSupported);
         }
     });
 
     QObject::connect(&volHandler, &VolumeHandler::volumeChanged, [&](int delta) {
-        currentVolume = qBound(0, currentVolume + delta, 100);
-        spotify.setVolume(currentVolume);
-        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying);
+        const int requestedVolume = qBound(0, currentVolume + delta, 100);
+        if (!spotify.setVolume(requestedVolume)) {
+            if (!currentVolumeControlSupported) {
+                osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, false);
+            }
+            return;
+        }
+
+        currentVolume = requestedVolume;
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
     // Check if we need to auth

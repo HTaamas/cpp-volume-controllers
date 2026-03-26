@@ -19,14 +19,16 @@ class OSDWindow : public QWidget {
     Q_OBJECT
 public:
     explicit OSDWindow(QWidget *parent = nullptr);
-    void showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl = "", int progressMs = 0, int durationMs = 0, bool isPlaying = false);
-    void syncProgress(int progressMs, bool isPlaying);
+    void showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl = "", int progressMs = 0, int durationMs = 0, bool isPlaying = false, bool volumeControlSupported = true);
+    void syncProgress(int progressMs, bool isPlaying, bool volumeControlSupported);
 
 private slots:
     void onImageDownloaded(QNetworkReply *reply);
     void updateSongProgress();
 
 private:
+    void positionOnActiveScreen();
+    void applyPlatformOverlayBehavior();
     ScrollingLabel *trackLabel;
     ScrollingLabel *artistLabel;
     QLabel *albumArtLabel;
@@ -44,6 +46,8 @@ private:
     int currentProgressMs = 0;
     int totalDurationMs = 0;
     bool isPlayingNow = false;
+    bool volumeControlSupportedNow = true;
+    void updateVolumeVisualState();
     void setPausedOverlayVisible(bool visible);
     QString formatTime(int ms);
 };

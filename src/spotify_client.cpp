@@ -76,8 +76,11 @@ void SpotifyClient::handleTokenResponse(QNetworkReply *reply) {
     reply->deleteLater();
 }
 
-void SpotifyClient::setVolume(int volume) {
-    if (accessToken.isEmpty()) return;
+bool SpotifyClient::setVolume(int volume) {
+    if (accessToken.isEmpty() || !volumeControlSupported) {
+        return false;
+    }
+
     currentVolume = qBound(0, volume, 100);
     pendingVolume = currentVolume;
     pendingVolumeTimer.restart();
@@ -92,6 +95,7 @@ void SpotifyClient::setVolume(int volume) {
     
     QNetworkReply *reply = network->put(request, QByteArray());
     connect(reply, &QNetworkReply::finished, [this, reply]() { handleVolumeResponse(reply); });
+    return true;
 }
 
 void SpotifyClient::pollPlayback() {
@@ -114,11 +118,33 @@ void SpotifyClient::pollPlayback() {
 void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
     if (reply->error() == QNetworkReply::NoError) {
         QByteArray data = reply->readAll();
-        if (data.isEmpty()) return; // 204 No Content
+        if (data.isEmpty()) {
+            volumeControlSupported = false;
+            pendingVolume = -1;
+            emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeControlSupported);
+            reply->deleteLater();
+            return; // 204 No Content / no active playback payload
+        }
         
         QJsonDocument doc = QJsonDocument::fromJson(data);
+        if (!doc.isObject()) {
+            qDebug() << "Playback Error: invalid JSON payload";
+            reply->deleteLater();
+            return;
+        }
+
         QJsonObject obj = doc.object();
         QJsonObject item = obj["item"].toObject();
+        QJsonObject device = obj["device"].toObject();
+        if (item.isEmpty() || device.isEmpty()) {
+            volumeControlSupported = false;
+            pendingVolume = -1;
+            lastIsPlaying = obj["is_playing"].toBool();
+            lastProgressMs = obj["progress_ms"].toInt(lastProgressMs);
+            emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeControlSupported);
+            reply->deleteLater();
+            return;
+        }
         
         QString trackId = item["id"].toString();
         QString trackName = item["name"].toString();
@@ -130,11 +156,22 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
             artistName += artistsArray[i].toObject()["name"].toString();
         }
 
-        QString albumArtUrl = item["album"].toObject()["images"].toArray().first().toObject()["url"].toString();
-        int vol = obj["device"].toObject()["volume_percent"].toInt();
+        const QJsonArray images = item["album"].toObject()["images"].toArray();
+        QString albumArtUrl;
+        if (!images.isEmpty()) {
+            albumArtUrl = images.first().toObject()["url"].toString();
+        }
+        volumeControlSupported = device.value("supports_volume").toBool(true);
+        int vol = device["volume_percent"].toInt();
         int progressMs = obj["progress_ms"].toInt();
         int durationMs = item["duration_ms"].toInt();
         bool isPlaying = obj["is_playing"].toBool();
+        lastProgressMs = progressMs;
+        lastIsPlaying = isPlaying;
+
+        if (!volumeControlSupported) {
+            pendingVolume = -1;
+        }
 
         // Keep local volume changes stable for a short window until Spotify catches up.
         int effectiveVolume = vol;
@@ -149,21 +186,35 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         }
 
         currentVolume = effectiveVolume;
-        emit stateSynced(currentVolume, progressMs, isPlaying);
+        emit stateSynced(currentVolume, progressMs, isPlaying, volumeControlSupported);
 
         if (trackId != lastTrackId) {
             lastTrackId = trackId;
-            emit trackChanged(currentVolume, trackName, artistName, trackId, albumArtUrl, progressMs, durationMs, isPlaying);
+            emit trackChanged(currentVolume, trackName, artistName, trackId, albumArtUrl, progressMs, durationMs, isPlaying, volumeControlSupported);
         }
-    } else if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 401) {
-        refreshAccessToken();
+    } else {
+        const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        if (statusCode == 401) {
+            refreshAccessToken();
+        } else if (statusCode == 403 || statusCode == 404) {
+            volumeControlSupported = false;
+            pendingVolume = -1;
+            emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeControlSupported);
+        } else {
+            qDebug() << "Playback Error:" << reply->errorString() << "status" << statusCode;
+        }
     }
     reply->deleteLater();
 }
 
 void SpotifyClient::handleVolumeResponse(QNetworkReply *reply) {
     if (reply->error() != QNetworkReply::NoError) {
-        qDebug() << "Volume Error:" << reply->errorString();
+        const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qDebug() << "Volume Error:" << reply->errorString() << "status" << statusCode;
+        if (statusCode == 403 || statusCode == 404) {
+            volumeControlSupported = false;
+            emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeControlSupported);
+        }
         pendingVolume = -1;
     }
     reply->deleteLater();

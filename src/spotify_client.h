@@ -20,12 +20,12 @@ class SpotifyClient : public QObject {
 public:
     explicit SpotifyClient(QObject *parent = nullptr);
     void startAuth();
-    void setVolume(int volume);
+    bool setVolume(int volume);
     void pollPlayback();
 
 signals:
-    void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying);
-    void stateSynced(int volume, int progressMs, bool isPlaying);
+    void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported);
+    void stateSynced(int volume, int progressMs, bool isPlaying, bool volumeControlSupported);
     void authComplete();
 
 private slots:
@@ -45,7 +45,10 @@ private:
     QString accessToken;
     QString refreshToken;
     QString lastTrackId;
+    bool volumeControlSupported = true;
     int currentVolume = 50;
+    int lastProgressMs = 0;
+    bool lastIsPlaying = false;
     int pendingVolume = -1;
     QElapsedTimer pendingVolumeTimer;
 

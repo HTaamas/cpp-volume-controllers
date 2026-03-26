@@ -1,8 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
-project(SpotifyVol CXX)
+
+if(APPLE)
+    project(SpotifyVol LANGUAGES CXX OBJCXX)
+else()
+    project(SpotifyVol LANGUAGES CXX)
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(APPLE)
+    set(CMAKE_OBJCXX_STANDARD 17)
+    set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
+endif()
 
 # Include environment parsing
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -19,6 +28,9 @@ if(WIN32)
     set(CMAKE_PREFIX_PATH "C:\\Qt\\6.10.2\\mingw_64\\")
 endif()
 find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui)
+if(UNIX AND NOT APPLE)
+    find_package(X11 REQUIRED)
+endif()
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -35,6 +47,15 @@ set(SOURCES
     src/volume_handler.cpp
 )
 
+if(WIN32)
+    list(APPEND SOURCES src/volume_handler_win.cpp)
+endif()
+
+if(APPLE)
+    list(APPEND SOURCES src/volume_handler_mac.mm)
+    list(APPEND SOURCES src/osd_window_mac.mm)
+endif()
+
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Add generated config header include directory
@@ -46,6 +67,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Gui
 )
 
+if(UNIX AND NOT APPLE)
+    target_include_directories(${PROJECT_NAME} PRIVATE ${X11_INCLUDE_DIR})
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${X11_LIBRARIES})
+endif()
+
 if(WIN32)
     set_target_properties(${PROJECT_NAME} PROPERTIES
         WIN32_EXECUTABLE TRUE
@@ -53,5 +79,21 @@ if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         User32
         Gdi32
+    )
+endif()
+
+if(APPLE)
+    set_target_properties(${PROJECT_NAME} PROPERTIES
+        MACOSX_BUNDLE TRUE
+        MACOSX_BUNDLE_BUNDLE_NAME "SpotifyVol"
+        MACOSX_BUNDLE_GUI_IDENTIFIER "com.spotifyvol.app"
+        MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
+        MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
+        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos/Info.plist.in"
+    )
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        "-framework AppKit"
+        "-framework ApplicationServices"
+        "-framework IOKit"
     )
 endif()

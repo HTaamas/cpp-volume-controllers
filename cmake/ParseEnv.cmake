@@ -71,18 +71,23 @@ function(generate_config_header env_file output_header)
         endif()
     endforeach()
     
-    # Generate header file with all variables available in local scope
-    file(WRITE "${output_header}" "#ifndef APP_CONFIG_H\n")
-    file(APPEND "${output_header}" "#define APP_CONFIG_H\n\n")
-    file(APPEND "${output_header}" "#include <QString>\n\n")
-    file(APPEND "${output_header}" "namespace AppConfig {\n")
-    file(APPEND "${output_header}" "    const QString SPOTIFY_CLIENT_ID = \"${SPOTIFY_CLIENT_ID}\";\n")
-    file(APPEND "${output_header}" "    const QString SPOTIFY_CLIENT_SECRET = \"${SPOTIFY_CLIENT_SECRET}\";\n")
-    file(APPEND "${output_header}" "    constexpr int POLL_INTERVAL_MS = ${APP_POLL_INTERVAL_MS};\n")
-    file(APPEND "${output_header}" "    constexpr int REDIRECT_PORT = ${APP_REDIRECT_PORT};\n")
-    file(APPEND "${output_header}" "}\n\n")
-    file(APPEND "${output_header}" "#endif // APP_CONFIG_H\n")
+    set(config_header_content [=[
+#ifndef APP_CONFIG_H
+#define APP_CONFIG_H
+
+#include <QString>
+
+namespace AppConfig {
+    const QString SPOTIFY_CLIENT_ID = "@SPOTIFY_CLIENT_ID@";
+    const QString SPOTIFY_CLIENT_SECRET = "@SPOTIFY_CLIENT_SECRET@";
+    constexpr int POLL_INTERVAL_MS = @APP_POLL_INTERVAL_MS@;
+    constexpr int REDIRECT_PORT = @APP_REDIRECT_PORT@;
+}
+
+#endif // APP_CONFIG_H
+]=])
+    string(CONFIGURE "${config_header_content}" config_header_content @ONLY)
+    file(WRITE "${output_header}" "${config_header_content}")
     
     message(STATUS "Generated config header: ${output_header}")
 endfunction()
-

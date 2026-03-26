@@ -8,3 +8,4 @@ build-mingw/
 .vscode/browse.VC.db
 .vscode/*.db
 .vscode/ipch/
+.DS_Store

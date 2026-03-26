@@ -36,6 +36,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 
 set(APP_ICON_ASSET "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.png")
+set(APP_ICON_WINDOWS_ICO "${CMAKE_CURRENT_BINARY_DIR}/app_icon.ico")
+set(APP_ICON_WINDOWS_RC "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc")
 
 set(SOURCES
     src/main.cpp
@@ -51,6 +53,12 @@ set(SOURCES
 
 if(WIN32)
     list(APPEND SOURCES src/volume_handler_win.cpp)
+    configure_file(
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows/app_icon.rc.in"
+        "${APP_ICON_WINDOWS_RC}"
+        @ONLY
+    )
+    list(APPEND SOURCES "${APP_ICON_WINDOWS_RC}")
 endif()
 
 if(APPLE)
@@ -77,6 +85,21 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
+    find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+    add_custom_command(
+        OUTPUT "${APP_ICON_WINDOWS_ICO}"
+        COMMAND "${POWERSHELL_EXECUTABLE}"
+            -NoProfile
+            -ExecutionPolicy Bypass
+            -File "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows/GenerateIco.ps1"
+            -InputPng "${APP_ICON_ASSET}"
+            -OutputIco "${APP_ICON_WINDOWS_ICO}"
+        DEPENDS
+            "${APP_ICON_ASSET}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows/GenerateIco.ps1"
+        VERBATIM
+    )
+    set_source_files_properties("${APP_ICON_WINDOWS_RC}" PROPERTIES OBJECT_DEPENDS "${APP_ICON_WINDOWS_ICO}")
     add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${APP_ICON_ASSET}"

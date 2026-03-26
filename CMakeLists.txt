@@ -38,6 +38,8 @@ set(CMAKE_AUTOUIC ON)
 set(APP_ICON_ASSET "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.png")
 set(APP_ICON_WINDOWS_ICO "${CMAKE_CURRENT_BINARY_DIR}/app_icon.ico")
 set(APP_ICON_WINDOWS_RC "${CMAKE_CURRENT_BINARY_DIR}/app_icon.rc")
+set(WINDOWS_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/runtime")
+set(WINDOWS_MIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/runtime-min")
 
 set(SOURCES
     src/main.cpp
@@ -85,7 +87,19 @@ if(UNIX AND NOT APPLE)
 endif()
 
 if(WIN32)
+    set(QT_BIN_DIR "${CMAKE_PREFIX_PATH}/bin")
+    set(QT_PLUGIN_DIR "${CMAKE_PREFIX_PATH}/plugins")
     find_program(POWERSHELL_EXECUTABLE NAMES pwsh powershell REQUIRED)
+    find_program(WINDEPLOYQT_EXECUTABLE
+        NAMES windeployqt
+        HINTS "${QT_BIN_DIR}"
+        REQUIRED
+    )
+    find_program(QTPATHS_EXECUTABLE
+        NAMES qtpaths
+        HINTS "${QT_BIN_DIR}"
+        REQUIRED
+    )
     add_custom_command(
         OUTPUT "${APP_ICON_WINDOWS_ICO}"
         COMMAND "${POWERSHELL_EXECUTABLE}"
@@ -111,6 +125,63 @@ if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         User32
         Gdi32
+    )
+
+    add_custom_target(runtime_bundle
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${WINDOWS_RUNTIME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WINDOWS_RUNTIME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${PROJECT_NAME}>"
+            "${WINDOWS_RUNTIME_DIR}/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${APP_ICON_ASSET}"
+            "${WINDOWS_RUNTIME_DIR}/app_icon.png"
+        COMMAND "${WINDEPLOYQT_EXECUTABLE}"
+            --qtpaths "${QTPATHS_EXECUTABLE}"
+            --release
+            --compiler-runtime
+            --no-translations
+            --dir "${WINDOWS_RUNTIME_DIR}"
+            "${WINDOWS_RUNTIME_DIR}/$<TARGET_FILE_NAME:${PROJECT_NAME}>"
+        DEPENDS ${PROJECT_NAME}
+        VERBATIM
+        COMMENT "Bundling a slim Windows runtime in ${WINDOWS_RUNTIME_DIR}"
+    )
+
+    add_custom_target(runtime_min_bundle
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "${WINDOWS_MIN_RUNTIME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WINDOWS_MIN_RUNTIME_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WINDOWS_MIN_RUNTIME_DIR}/platforms"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WINDOWS_MIN_RUNTIME_DIR}/imageformats"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${WINDOWS_MIN_RUNTIME_DIR}/tls"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:${PROJECT_NAME}>"
+            "${WINDOWS_MIN_RUNTIME_DIR}/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${APP_ICON_ASSET}"
+            "${WINDOWS_MIN_RUNTIME_DIR}/app_icon.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT_BIN_DIR}/Qt6Core.dll"
+            "${QT_BIN_DIR}/Qt6Gui.dll"
+            "${QT_BIN_DIR}/Qt6Network.dll"
+            "${QT_BIN_DIR}/Qt6Widgets.dll"
+            "${QT_BIN_DIR}/D3Dcompiler_47.dll"
+            "${WINDOWS_MIN_RUNTIME_DIR}/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT_BIN_DIR}/libwinpthread-1.dll"
+            "${WINDOWS_MIN_RUNTIME_DIR}/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT_PLUGIN_DIR}/platforms/qwindows.dll"
+            "${WINDOWS_MIN_RUNTIME_DIR}/platforms/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT_PLUGIN_DIR}/imageformats/qjpeg.dll"
+            "${WINDOWS_MIN_RUNTIME_DIR}/imageformats/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${QT_PLUGIN_DIR}/tls/qschannelbackend.dll"
+            "${WINDOWS_MIN_RUNTIME_DIR}/tls/"
+        DEPENDS ${PROJECT_NAME}
+        VERBATIM
+        COMMENT "Bundling the smallest practical Windows runtime in ${WINDOWS_MIN_RUNTIME_DIR}"
     )
 endif()
 

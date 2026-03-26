@@ -13,6 +13,7 @@
 #include <QTcpServer>
 #include <QTcpSocket>
 #include <QElapsedTimer>
+#include <functional>
 #include <app_config.h>
 
 class SpotifyClient : public QObject {
@@ -35,6 +36,12 @@ private slots:
     void onNewConnection();
 
 private:
+    QString redirectUri() const;
+    QNetworkRequest authorizedRequest(const QUrl &url) const;
+    void exchangeAuthorizationCode(const QString &code);
+    void postTokenRequest(const QUrlQuery &body, const std::function<void(QNetworkReply *)> &handler);
+    void setVolumeControlSupported(bool supported);
+    void emitPlaybackState();
     void refreshAccessToken();
     void saveTokens();
     void loadTokens();
@@ -52,7 +59,7 @@ private:
     int pendingVolume = -1;
     QElapsedTimer pendingVolumeTimer;
 
-    QTcpServer *authServer;
+    QTcpServer *authServer = nullptr;
     const int redirectPort = AppConfig::REDIRECT_PORT;
 };
 

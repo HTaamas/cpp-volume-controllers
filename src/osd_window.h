@@ -27,6 +27,8 @@ private slots:
     void updateSongProgress();
 
 private:
+    void showOverlay();
+    void applyAlbumArtFallback();
     void positionOnActiveScreen();
     void applyPlatformOverlayBehavior();
     ScrollingLabel *trackLabel;

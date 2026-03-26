@@ -7,7 +7,8 @@
 #include <QRadialGradient>
 #include <QApplication>
 
-TrayManager::TrayManager(QObject *parent) : QObject(parent) {
+namespace {
+QIcon createTrayIcon() {
     QPixmap pixmap(64, 64);
     pixmap.fill(Qt::transparent);
 
@@ -55,16 +56,21 @@ TrayManager::TrayManager(QObject *parent) : QObject(parent) {
     painter.drawPath(waveTop);
     painter.drawPath(waveMid);
     painter.drawPath(waveLow);
-    
-    trayIcon = new QSystemTrayIcon(QIcon(pixmap), this);
+
+    return QIcon(pixmap);
+}
+}
+
+TrayManager::TrayManager(QObject *parent) : QObject(parent) {
+    trayIcon = new QSystemTrayIcon(createTrayIcon(), this);
     QMenu *menu = new QMenu();
-    
+
     trackAction = menu->addAction("Current Playing: None");
     trackAction->setEnabled(false);
-    
+
     QAction *quitAction = menu->addAction("Quit");
     connect(quitAction, &QAction::triggered, QApplication::quit);
-    
+
     trayIcon->setContextMenu(menu);
     trayIcon->show();
 }

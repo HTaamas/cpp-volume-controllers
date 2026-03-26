@@ -1,11 +1,14 @@
 .cache/
 build/
 build-mingw/
+cmake-build-*/
 .env
 
 # IDE - cache and temp files only
 .idea/
+.idea/workspace.xml
 .vscode/browse.VC.db
 .vscode/*.db
 .vscode/ipch/
+.vs/
 .DS_Store

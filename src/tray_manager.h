@@ -11,9 +11,6 @@ public:
     explicit TrayManager(QObject *parent = nullptr);
     void updateTrackInfo(const QString &track, const QString &artist);
 
-signals:
-    void quitRequested();
-
 private:
     QSystemTrayIcon *trayIcon;
     QAction *trackAction;

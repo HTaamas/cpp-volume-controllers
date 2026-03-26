@@ -16,6 +16,21 @@ void restoreMacOverlayFocus();
 #endif
 
 namespace {
+constexpr auto kContainerStyle = "background-color: #1c1c1c; border-radius: 12px; border: 1px solid #333333;";
+constexpr auto kAlbumArtFallbackStyle = "border: none; border-radius: 6px; background-color: #2c2c2c; color: #1DB954; font-size: 32px;";
+constexpr auto kTrackLabelStyle = "color: #ffffff; font-weight: bold; font-size: 16px; border: none;";
+constexpr auto kArtistLabelStyle = "color: #aaaaaa; font-size: 13px; border: none;";
+constexpr auto kTimeLabelStyle = "color: #888888; font-size: 11px; font-family: monospace; border: none;";
+constexpr auto kSongProgressStyle =
+    "QProgressBar { background-color: #333333; border: none; border-radius: 2px; }"
+    "QProgressBar::chunk { background-color: #ffffff; border-radius: 2px; }";
+constexpr auto kVolumeAvailableStyle =
+    "QProgressBar { background-color: #333333; border: none; border-radius: 4px; }"
+    "QProgressBar::chunk { background-color: #1DB954; border-radius: 4px; }";
+constexpr auto kVolumeUnavailableStyle =
+    "QProgressBar { background-color: #2e3834; border: none; border-radius: 4px; }"
+    "QProgressBar::chunk { background-color: #6f8f7c; border-radius: 4px; }";
+
 QPixmap makeRoundedPixmap(const QPixmap &source, int targetSize, qreal radius) {
     QPixmap scaled = source.scaled(targetSize, targetSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
 
@@ -201,7 +216,7 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
     QWidget *container = new QWidget(this);
-    container->setStyleSheet("background-color: #1c1c1c; border-radius: 12px; border: 1px solid #333333;");
+    container->setStyleSheet(kContainerStyle);
 
     QHBoxLayout *hLayout = new QHBoxLayout(container);
     hLayout->setContentsMargins(15, 15, 15, 15);
@@ -209,7 +224,7 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
 
     albumArtLabel = new QLabel(this);
     albumArtLabel->setFixedSize(80, 80);
-    albumArtLabel->setStyleSheet("border: none; border-radius: 6px; background-color: #2c2c2c; color: #1DB954; font-size: 32px;");
+    albumArtLabel->setStyleSheet(kAlbumArtFallbackStyle);
     albumArtLabel->setScaledContents(false);
     albumArtLabel->setAlignment(Qt::AlignCenter);
     albumArtLabel->setText("🎵");
@@ -246,11 +261,11 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     textLayout->setSpacing(2);
 
     trackLabel = new ScrollingLabel(this);
-    trackLabel->setLabelStyleSheet("color: #ffffff; font-weight: bold; font-size: 16px; border: none;");
+    trackLabel->setLabelStyleSheet(kTrackLabelStyle);
     trackLabel->setFixedHeight(24);
 
     artistLabel = new ScrollingLabel(this);
-    artistLabel->setLabelStyleSheet("color: #aaaaaa; font-size: 13px; border: none;");
+    artistLabel->setLabelStyleSheet(kArtistLabelStyle);
     artistLabel->setFixedHeight(20);
 
     volumeLabel = new QLabel(this);
@@ -269,13 +284,10 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     songProgressBar = new QProgressBar(this);
     songProgressBar->setTextVisible(false);
     songProgressBar->setFixedHeight(4);
-    songProgressBar->setStyleSheet(
-        "QProgressBar { background-color: #333333; border: none; border-radius: 2px; }"
-        "QProgressBar::chunk { background-color: #ffffff; border-radius: 2px; }"
-    );
+    songProgressBar->setStyleSheet(kSongProgressStyle);
 
     timeLabel = new QLabel(this);
-    timeLabel->setStyleSheet("color: #888888; font-size: 11px; font-family: monospace; border: none;");
+    timeLabel->setStyleSheet(kTimeLabelStyle);
     timeLabel->setAlignment(Qt::AlignRight);
 
     QHBoxLayout *statusRow = new QHBoxLayout();
@@ -338,30 +350,12 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
         lastArtUrl = albumArtUrl;
         QNetworkRequest request(albumArtUrl);
         QNetworkReply *reply = network->get(request);
-        connect(reply, &QNetworkReply::finished, [this, reply]() {
+        connect(reply, &QNetworkReply::finished, this, [this, reply]() {
             onImageDownloaded(reply);
-#ifdef __APPLE__
-            prepareMacOverlayFocusRestore();
-#endif
-            applyPlatformOverlayBehavior();
-            this->show();
-#ifdef __APPLE__
-            restoreMacOverlayFocus();
-#endif
-            hideTimer->start(3500);
-            progressTimer->start(100);
+            showOverlay();
         });
     } else {
-#ifdef __APPLE__
-        prepareMacOverlayFocusRestore();
-#endif
-        applyPlatformOverlayBehavior();
-        show();
-#ifdef __APPLE__
-        restoreMacOverlayFocus();
-#endif
-        hideTimer->start(3500);
-        progressTimer->start(100);
+        showOverlay();
     }
 }
 
@@ -383,19 +377,13 @@ void OSDWindow::updateVolumeVisualState() {
     if (volumeControlSupportedNow) {
         volumeLabel->setText(QString("Volume %1%").arg(volumeBar->value()));
         volumeLabel->setStyleSheet("color: #cfd8d3; font-size: 12px; font-weight: 600; border: none;");
-        volumeBar->setStyleSheet(
-            "QProgressBar { background-color: #333333; border: none; border-radius: 4px; }"
-            "QProgressBar::chunk { background-color: #1DB954; border-radius: 4px; }"
-        );
+        volumeBar->setStyleSheet(kVolumeAvailableStyle);
         return;
     }
 
     volumeLabel->setText("Volume unavailable on this device");
     volumeLabel->setStyleSheet("color: #9ab6a7; font-size: 12px; font-weight: 600; border: none;");
-    volumeBar->setStyleSheet(
-        "QProgressBar { background-color: #2e3834; border: none; border-radius: 4px; }"
-        "QProgressBar::chunk { background-color: #6f8f7c; border-radius: 4px; }"
-    );
+    volumeBar->setStyleSheet(kVolumeUnavailableStyle);
 }
 
 void OSDWindow::setPausedOverlayVisible(bool visible) {
@@ -411,6 +399,19 @@ void OSDWindow::updateSongProgress() {
         songProgressBar->setValue(currentProgressMs);
         timeLabel->setText(formatTime(currentProgressMs) + " / " + formatTime(totalDurationMs));
     }
+}
+
+void OSDWindow::showOverlay() {
+#ifdef __APPLE__
+    prepareMacOverlayFocusRestore();
+#endif
+    applyPlatformOverlayBehavior();
+    show();
+#ifdef __APPLE__
+    restoreMacOverlayFocus();
+#endif
+    hideTimer->start(3500);
+    progressTimer->start(100);
 }
 
 void OSDWindow::positionOnActiveScreen() {
@@ -445,6 +446,12 @@ QString OSDWindow::formatTime(int ms) {
     return QString("%1:%2").arg(minutes).arg(seconds, 2, 10, QChar('0'));
 }
 
+void OSDWindow::applyAlbumArtFallback() {
+    albumArtLabel->setPixmap(QPixmap());
+    albumArtLabel->setStyleSheet(kAlbumArtFallbackStyle);
+    albumArtLabel->setText("ðŸŽµ");
+}
+
 void OSDWindow::onImageDownloaded(QNetworkReply *reply) {
     if (reply->error() == QNetworkReply::NoError) {
         QByteArray imageData = reply->readAll();
@@ -453,6 +460,8 @@ void OSDWindow::onImageDownloaded(QNetworkReply *reply) {
             albumArtLabel->setText(""); // Clear fallback
             albumArtLabel->setStyleSheet("border: none; border-radius: 6px; background: transparent;");
             albumArtLabel->setPixmap(makeRoundedPixmap(pixmap, albumArtLabel->width(), 6.0));
+        } else {
+            applyAlbumArtFallback();
         }
     } else {
         albumArtLabel->setPixmap(QPixmap());

@@ -51,6 +51,12 @@ set(SOURCES
     src/tray_manager.h
     src/volume_handler.h
     src/volume_handler.cpp
+    src/implementation/audio_ducker.h
+    src/implementation/audio_ducker.cpp
+    src/implementation/app_settings.h
+    src/implementation/app_settings.cpp
+    src/implementation/settings_dialog.h
+    src/implementation/settings_dialog.cpp
 )
 
 if(WIN32)
@@ -73,7 +79,10 @@ endif()
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Add generated config header include directory
-target_include_directories(${PROJECT_NAME} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
+target_include_directories(${PROJECT_NAME} PRIVATE
+    "${CMAKE_CURRENT_BINARY_DIR}/include"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src"
+)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
     Qt6::Widgets 
@@ -125,6 +134,8 @@ if(WIN32)
     target_link_libraries(${PROJECT_NAME} PRIVATE
         User32
         Gdi32
+        Ole32
+        Uuid
     )
 
     add_custom_target(runtime_bundle

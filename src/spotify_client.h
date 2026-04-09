@@ -23,6 +23,9 @@ public:
     void startAuth();
     bool setVolume(int volume);
     void pollPlayback();
+    bool hasCredentialsConfigured() const;
+    bool hasStoredSession() const;
+    QString authRedirectUri() const;
 
 signals:
     void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported);

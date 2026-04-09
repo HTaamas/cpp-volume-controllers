@@ -2,6 +2,7 @@
 #define OSD_WINDOW_H
 
 #include <QWidget>
+#include "implementation/app_settings.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QTimer>
@@ -21,6 +22,7 @@ public:
     explicit OSDWindow(QWidget *parent = nullptr);
     void showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl = "", int progressMs = 0, int durationMs = 0, bool isPlaying = false, bool volumeControlSupported = true);
     void syncProgress(int progressMs, bool isPlaying, bool volumeControlSupported);
+    void applyOverlaySettings(const OverlaySettings &settings);
 
 private slots:
     void onImageDownloaded(QNetworkReply *reply);
@@ -44,14 +46,17 @@ private:
     QTimer *hideTimer;
     QTimer *progressTimer;
     QNetworkAccessManager *network;
+    QWidget *containerWidget;
     QString lastArtUrl;
     int currentProgressMs = 0;
     int totalDurationMs = 0;
     bool isPlayingNow = false;
     bool volumeControlSupportedNow = true;
+    OverlaySettings overlaySettings;
     void updateVolumeVisualState();
     void setPausedOverlayVisible(bool visible);
     QString formatTime(int ms);
+    void refreshStyles();
 };
 
 #endif // OSD_WINDOW_H

@@ -68,13 +68,24 @@ TrayManager::TrayManager(QObject *parent) : QObject(parent) {
     trackAction = menu->addAction("Current Playing: None");
     trackAction->setEnabled(false);
 
+    settingsAction = menu->addAction("Settings");
+    connect(settingsAction, &QAction::triggered, this, &TrayManager::settingsRequested);
+
+    menu->addSeparator();
     QAction *quitAction = menu->addAction("Quit");
     connect(quitAction, &QAction::triggered, QApplication::quit);
 
     trayIcon->setContextMenu(menu);
+    connect(trayIcon, &QSystemTrayIcon::activated, this, &TrayManager::handleTrayActivation);
     trayIcon->show();
 }
 
 void TrayManager::updateTrackInfo(const QString &track, const QString &artist) {
     trackAction->setText("Current Playing: " + track + " - " + artist);
+}
+
+void TrayManager::handleTrayActivation(QSystemTrayIcon::ActivationReason reason) {
+    if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+        emit settingsRequested();
+    }
 }

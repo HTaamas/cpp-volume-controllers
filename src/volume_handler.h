@@ -2,6 +2,7 @@
 #define VOLUME_HANDLER_H
 
 #include <QObject>
+#include "implementation/app_settings.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -22,6 +23,7 @@ class VolumeHandler : public QObject {
 public:
     explicit VolumeHandler(QObject *parent = nullptr);
     ~VolumeHandler() override;
+    void applyKeybindSettings(const KeybindSettings &settings);
 
 signals:
     void volumeChanged(int delta);
@@ -46,6 +48,7 @@ private:
     int volumeDownKeyCode = 0;
 #endif
     static VolumeHandler *instance;
+    KeybindSettings keybindSettings;
 };
 
 #endif // VOLUME_HANDLER_H

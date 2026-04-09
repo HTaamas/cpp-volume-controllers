@@ -27,6 +27,18 @@ QString SpotifyClient::redirectUri() const {
     return QString("http://127.0.0.1:%1/callback").arg(redirectPort);
 }
 
+bool SpotifyClient::hasCredentialsConfigured() const {
+    return !clientId.trimmed().isEmpty() && !clientSecret.trimmed().isEmpty();
+}
+
+bool SpotifyClient::hasStoredSession() const {
+    return !accessToken.isEmpty() || !refreshToken.isEmpty();
+}
+
+QString SpotifyClient::authRedirectUri() const {
+    return redirectUri();
+}
+
 QNetworkRequest SpotifyClient::authorizedRequest(const QUrl &url) const {
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", ("Bearer " + accessToken).toUtf8());
@@ -55,6 +67,11 @@ void SpotifyClient::emitPlaybackState() {
 }
 
 void SpotifyClient::startAuth() {
+    if (!hasCredentialsConfigured()) {
+        qDebug() << "Spotify auth cannot start without client credentials.";
+        return;
+    }
+
     if (authServer) {
         authServer->close();
         authServer->deleteLater();

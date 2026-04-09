@@ -31,6 +31,13 @@ constexpr auto kVolumeUnavailableStyle =
     "QProgressBar { background-color: #2e3834; border: none; border-radius: 4px; }"
     "QProgressBar::chunk { background-color: #6f8f7c; border-radius: 4px; }";
 
+QString makeProgressStyle(const QString &backgroundColor, const QString &chunkColor, int radius) {
+    return QString(
+        "QProgressBar { background-color: %1; border: none; border-radius: %2px; }"
+        "QProgressBar::chunk { background-color: %3; border-radius: %2px; }"
+    ).arg(backgroundColor).arg(radius).arg(chunkColor);
+}
+
 QPixmap makeRoundedPixmap(const QPixmap &source, int targetSize, qreal radius) {
     QPixmap scaled = source.scaled(targetSize, targetSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
 
@@ -215,16 +222,16 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
     mainLayout->setContentsMargins(0, 0, 0, 0);
 
-    QWidget *container = new QWidget(this);
-    container->setStyleSheet(kContainerStyle);
+    containerWidget = new QWidget(this);
+    containerWidget->setStyleSheet(kContainerStyle);
 
-    QHBoxLayout *hLayout = new QHBoxLayout(container);
+    QHBoxLayout *hLayout = new QHBoxLayout(containerWidget);
     hLayout->setContentsMargins(15, 15, 15, 15);
     hLayout->setSpacing(15);
 
     albumArtLabel = new QLabel(this);
     albumArtLabel->setFixedSize(80, 80);
-    albumArtLabel->setStyleSheet(kAlbumArtFallbackStyle);
+    albumArtLabel->setStyleSheet(QString("border: none; border-radius: 6px; background-color: #2c2c2c; color: %1; font-size: 32px;").arg(overlaySettings.accentColor));
     albumArtLabel->setScaledContents(false);
     albumArtLabel->setAlignment(Qt::AlignCenter);
     albumArtLabel->setText("🎵");
@@ -309,7 +316,7 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     hLayout->addLayout(textLayout);
     hLayout->setStretch(1, 1);
 
-    mainLayout->addWidget(container);
+    mainLayout->addWidget(containerWidget);
 
     setFixedSize(440, 110); // Exactly album art (80) + top margin (15) + bottom margin (15)
 
@@ -325,7 +332,8 @@ OSDWindow::OSDWindow(QWidget *parent) : QWidget(parent), network(new QNetworkAcc
     progressTimer = new QTimer(this);
     connect(progressTimer, &QTimer::timeout, this, &OSDWindow::updateSongProgress);
 
-    updateVolumeVisualState();
+    overlaySettings = AppSettings::loadOverlaySettings();
+    applyOverlaySettings(overlaySettings);
 }
 
 void OSDWindow::showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported) {
@@ -376,14 +384,14 @@ void OSDWindow::syncProgress(int progressMs, bool isPlaying, bool volumeControlS
 void OSDWindow::updateVolumeVisualState() {
     if (volumeControlSupportedNow) {
         volumeLabel->setText(QString("Volume %1%").arg(volumeBar->value()));
-        volumeLabel->setStyleSheet("color: #cfd8d3; font-size: 12px; font-weight: 600; border: none;");
-        volumeBar->setStyleSheet(kVolumeAvailableStyle);
+        volumeLabel->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; border: none;").arg(overlaySettings.secondaryTextColor));
+        volumeBar->setStyleSheet(makeProgressStyle("#333333", overlaySettings.accentColor, 4));
         return;
     }
 
     volumeLabel->setText("Volume unavailable on this device");
-    volumeLabel->setStyleSheet("color: #9ab6a7; font-size: 12px; font-weight: 600; border: none;");
-    volumeBar->setStyleSheet(kVolumeUnavailableStyle);
+    volumeLabel->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; border: none;").arg(overlaySettings.mutedTextColor));
+    volumeBar->setStyleSheet(makeProgressStyle("#2e3834", overlaySettings.mutedTextColor, 4));
 }
 
 void OSDWindow::setPausedOverlayVisible(bool visible) {
@@ -410,7 +418,7 @@ void OSDWindow::showOverlay() {
 #ifdef __APPLE__
     restoreMacOverlayFocus();
 #endif
-    hideTimer->start(3500);
+    hideTimer->start(overlaySettings.hideDurationMs);
     progressTimer->start(100);
 }
 
@@ -448,8 +456,8 @@ QString OSDWindow::formatTime(int ms) {
 
 void OSDWindow::applyAlbumArtFallback() {
     albumArtLabel->setPixmap(QPixmap());
-    albumArtLabel->setStyleSheet(kAlbumArtFallbackStyle);
-    albumArtLabel->setText("ðŸŽµ");
+    albumArtLabel->setStyleSheet(QString("border: none; border-radius: 6px; background-color: #2c2c2c; color: %1; font-size: 32px;").arg(overlaySettings.accentColor));
+    albumArtLabel->setText("♪");
 }
 
 void OSDWindow::onImageDownloaded(QNetworkReply *reply) {
@@ -465,9 +473,29 @@ void OSDWindow::onImageDownloaded(QNetworkReply *reply) {
         }
     } else {
         albumArtLabel->setPixmap(QPixmap());
-        albumArtLabel->setStyleSheet("border: none; border-radius: 6px; background-color: #2c2c2c; color: #1DB954; font-size: 32px;");
+        albumArtLabel->setStyleSheet(QString("border: none; border-radius: 6px; background-color: #2c2c2c; color: %1; font-size: 32px;").arg(overlaySettings.accentColor));
         albumArtLabel->setText("🎵");
         qDebug() << "Image Download Error:" << reply->errorString();
     }
     reply->deleteLater();
+}
+
+void OSDWindow::applyOverlaySettings(const OverlaySettings &settings) {
+    overlaySettings = settings;
+    setFixedSize(overlaySettings.overlayWidth, height());
+    refreshStyles();
+    updateVolumeVisualState();
+}
+
+void OSDWindow::refreshStyles() {
+    containerWidget->setStyleSheet(QString("background-color: %1; border-radius: 12px; border: 1px solid %2;")
+        .arg(overlaySettings.backgroundColor, overlaySettings.borderColor));
+    trackLabel->setLabelStyleSheet(QString("color: %1; font-weight: bold; font-size: 16px; border: none;").arg(overlaySettings.primaryTextColor));
+    artistLabel->setLabelStyleSheet(QString("color: %1; font-size: 13px; border: none;").arg(overlaySettings.secondaryTextColor));
+    timeLabel->setStyleSheet(QString("color: %1; font-size: 11px; font-family: monospace; border: none;").arg(overlaySettings.mutedTextColor));
+    songProgressBar->setStyleSheet(makeProgressStyle(overlaySettings.borderColor, overlaySettings.progressBarColor, 2));
+
+    if (albumArtLabel->pixmap(Qt::ReturnByValue).isNull()) {
+        applyAlbumArtFallback();
+    }
 }

@@ -3,6 +3,9 @@
 #include "osd_window.h"
 #include "tray_manager.h"
 #include "volume_handler.h"
+#include "implementation/audio_ducker.h"
+#include "implementation/app_settings.h"
+#include "implementation/settings_dialog.h"
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QIcon>
@@ -126,6 +129,18 @@ int main(int argc, char *argv[]) {
     OSDWindow osd;
     TrayManager tray;
     VolumeHandler volHandler;
+    SettingsDialog settingsDialog;
+    AudioDucker audioDucker;
+
+    settingsDialog.setCredentialsConfigured(spotify.hasCredentialsConfigured());
+    settingsDialog.setAuthenticated(spotify.hasStoredSession());
+    settingsDialog.setRedirectUri(spotify.authRedirectUri());
+    settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
+    settingsDialog.setAudioDuckerSettings(audioDucker.settings());
+    settingsDialog.setOverlaySettings(AppSettings::loadOverlaySettings());
+    settingsDialog.setKeybindSettings(AppSettings::loadKeybindSettings());
+    osd.applyOverlaySettings(settingsDialog.overlaySettings());
+    volHandler.applyKeybindSettings(settingsDialog.keybindSettings());
 
     int currentVolume = 50;
     QString currentTrack = "Loading...";
@@ -167,22 +182,72 @@ int main(int argc, char *argv[]) {
         currentArtist = artist;
         currentArtUrl = albumArtUrl;
         currentVolumeControlSupported = volumeControlSupported;
+        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         updateProgressBaseline(progressMs, isPlaying);
         currentDuration = durationMs;
         osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs, isPlaying, volumeControlSupported);
         tray.updateTrackInfo(track, artist);
     });
 
+    QObject::connect(&spotify, &SpotifyClient::authComplete, [&]() {
+        settingsDialog.setAuthenticated(true);
+    });
+
+    QObject::connect(&tray, &TrayManager::settingsRequested, [&]() {
+        settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
+        settingsDialog.setAudioDuckerSettings(audioDucker.settings());
+        settingsDialog.show();
+        settingsDialog.raise();
+        settingsDialog.activateWindow();
+    });
+
+    QObject::connect(&settingsDialog, &SettingsDialog::connectSpotifyRequested, [&]() {
+        spotify.startAuth();
+    });
+
+    QObject::connect(&settingsDialog, &SettingsDialog::audioDuckerSettingsChanged, [&]() {
+        audioDucker.setSettings(settingsDialog.audioDuckerSettings());
+    });
+
+    QObject::connect(&settingsDialog, &SettingsDialog::overlaySettingsChanged, [&]() {
+        const OverlaySettings settings = settingsDialog.overlaySettings();
+        AppSettings::saveOverlaySettings(settings);
+        osd.applyOverlaySettings(settings);
+    });
+
+    QObject::connect(&settingsDialog, &SettingsDialog::keybindSettingsChanged, [&]() {
+        const KeybindSettings settings = settingsDialog.keybindSettings();
+        AppSettings::saveKeybindSettings(settings);
+        volHandler.applyKeybindSettings(settings);
+    });
+
+    QObject::connect(&audioDucker, &AudioDucker::monitorStateChanged, [&](const QString &statusText) {
+        settingsDialog.setAudioDuckerStatusText(statusText);
+    });
+
+    audioDucker.setSettings(settingsDialog.audioDuckerSettings());
+
     QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs, bool isPlaying, bool volumeControlSupported) {
         const bool playbackStateChanged = (isPlaying != currentIsPlaying);
         currentVolume = volume;
         currentVolumeControlSupported = volumeControlSupported;
+        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         updateProgressBaseline(progressMs, isPlaying);
         osd.syncProgress(progressMs, isPlaying, volumeControlSupported);
 
         if (playbackStateChanged) {
             osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, progressMs, currentDuration, currentIsPlaying, currentVolumeControlSupported);
         }
+    });
+
+    QObject::connect(&audioDucker, &AudioDucker::volumeAdjustmentRequested, [&](int targetVolume) {
+        if (!spotify.setVolume(targetVolume)) {
+            return;
+        }
+
+        currentVolume = targetVolume;
+        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
     QObject::connect(&volHandler, &VolumeHandler::volumeChanged, [&](int delta) {
@@ -195,6 +260,7 @@ int main(int argc, char *argv[]) {
         }
 
         currentVolume = requestedVolume;
+        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 

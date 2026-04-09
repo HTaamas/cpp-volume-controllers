@@ -6,6 +6,7 @@ HHOOK VolumeHandler::hHook = nullptr;
 
 VolumeHandler::VolumeHandler(QObject *parent) : QObject(parent) {
     instance = this;
+    keybindSettings = AppSettings::loadKeybindSettings();
 
     hHook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, GetModuleHandle(NULL), 0);
     if (!hHook) {
@@ -29,8 +30,10 @@ LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, L
         KBDLLHOOKSTRUCT *pKey = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
         if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
             if (pKey->vkCode == VK_VOLUME_UP || pKey->vkCode == VK_VOLUME_DOWN) {
-                const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000);
-                const int delta = (pKey->vkCode == VK_VOLUME_UP) ? (isShift ? 1 : 5) : (isShift ? -1 : -5);
+                const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool useFineStep = instance && instance->keybindSettings.useShiftForFineAdjust && isShift;
+                const int step = instance ? (useFineStep ? instance->keybindSettings.fineStep : instance->keybindSettings.coarseStep) : 5;
+                const int delta = (pKey->vkCode == VK_VOLUME_UP) ? step : -step;
 
                 if (instance) {
                     emit instance->volumeChanged(delta);

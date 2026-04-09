@@ -18,6 +18,10 @@ constexpr unsigned int kLinuxGrabModifiers[] = {
 
 VolumeHandler *VolumeHandler::instance = nullptr;
 
+void VolumeHandler::applyKeybindSettings(const KeybindSettings &settings) {
+    keybindSettings = settings;
+}
+
 #if defined(__linux__)
 VolumeHandler::VolumeHandler(QObject *parent) : QObject(parent) {
     instance = this;

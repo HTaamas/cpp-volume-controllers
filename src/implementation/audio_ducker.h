@@ -19,6 +19,7 @@ struct AudioOutputDeviceOption {
 struct AudioDuckerSettings {
     bool enabled = false;
     bool monitorEntireOutput = false;
+    bool instantDuck = true;
     QString monitorDeviceId;
     QString monitorDeviceName;
     QString monitorProcessName = "Discord.exe";
@@ -52,10 +53,11 @@ private:
     void pollAudioActivity();
     void refreshTimerState();
     void handlePeakLevel(double peakLevel);
-    void requestVolumeChange(int targetVolume);
+    void requestVolumeChange(int targetVolume, bool immediate = false);
     void advanceVolumeRamp();
     void restoreVolumeIfNeeded();
     bool canSendVolumeCommand() const;
+    bool restoreRampInProgress() const;
     QString currentMonitorLabel() const;
     void updateStatusText(const QString &text);
 

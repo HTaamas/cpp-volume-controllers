@@ -96,6 +96,9 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     monitorEntireOutputCheck = new QCheckBox("Watch the whole output device instead of one app", this);
     duckingLayout->addWidget(monitorEntireOutputCheck);
 
+    instantDuckCheck = new QCheckBox("Drop volume instantly when ducking starts", this);
+    duckingLayout->addWidget(instantDuckCheck);
+
     monitorDeviceCombo = new QComboBox(this);
     duckingLayout->addWidget(createRow("Output device", monitorDeviceCombo, duckingTab));
 
@@ -175,10 +178,13 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     fineStepSpin = new QSpinBox(this);
     fineStepSpin->setRange(1, 25);
     useShiftFineAdjustCheck = new QCheckBox("Use Shift for fine adjustment", this);
+    QLabel *duckingToggleHint = new QLabel("Global ducking toggle: Alt+D", this);
+    duckingToggleHint->setWordWrap(true);
 
     keybindsLayout->addRow("Coarse step", coarseStepSpin);
     keybindsLayout->addRow("Fine step", fineStepSpin);
     keybindsLayout->addRow(QString(), useShiftFineAdjustCheck);
+    keybindsLayout->addRow(QString(), duckingToggleHint);
     tabs->addTab(keybindsTab, "Keybinds");
 
     layout->addWidget(tabs);
@@ -211,6 +217,7 @@ void SettingsDialog::setRedirectUri(const QString &redirectUri) {
 void SettingsDialog::setAudioDuckerSettings(const AudioDuckerSettings &settings) {
     audioDuckerEnabledCheck->setChecked(settings.enabled);
     monitorEntireOutputCheck->setChecked(settings.monitorEntireOutput);
+    instantDuckCheck->setChecked(settings.instantDuck);
     const int deviceIndex = monitorDeviceCombo->findData(settings.monitorDeviceId);
     if (deviceIndex >= 0) {
         monitorDeviceCombo->setCurrentIndex(deviceIndex);
@@ -227,6 +234,7 @@ AudioDuckerSettings SettingsDialog::audioDuckerSettings() const {
     AudioDuckerSettings settings;
     settings.enabled = audioDuckerEnabledCheck->isChecked();
     settings.monitorEntireOutput = monitorEntireOutputCheck->isChecked();
+    settings.instantDuck = instantDuckCheck->isChecked();
     settings.monitorDeviceId = monitorDeviceCombo->currentData().toString();
     settings.monitorDeviceName = monitorDeviceCombo->currentText();
     settings.monitorProcessName = monitorProcessEdit->text().trimmed();
@@ -308,6 +316,7 @@ void SettingsDialog::wireAudioDuckerControls() {
         monitorProcessEdit->setEnabled(!checked);
         emit audioDuckerSettingsChanged();
     });
+    connect(instantDuckCheck, &QCheckBox::toggled, this, &SettingsDialog::audioDuckerSettingsChanged);
     connect(monitorDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
     connect(monitorProcessEdit, &QLineEdit::textChanged, this, &SettingsDialog::audioDuckerSettingsChanged);
     connect(duckedVolumeSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });

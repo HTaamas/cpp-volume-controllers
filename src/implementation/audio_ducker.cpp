@@ -67,6 +67,7 @@ AudioDuckerSettings AudioDucker::loadSettings() {
     AudioDuckerSettings config;
     config.enabled = settings.value("enabled", config.enabled).toBool();
     config.monitorEntireOutput = settings.value("monitorEntireOutput", config.monitorEntireOutput).toBool();
+    config.instantDuck = settings.value("instantDuck", config.instantDuck).toBool();
     config.monitorDeviceId = settings.value("monitorDeviceId", config.monitorDeviceId).toString();
     config.monitorDeviceName = settings.value("monitorDeviceName", config.monitorDeviceName).toString();
     config.monitorProcessName = settings.value("monitorProcessName", config.monitorProcessName).toString();
@@ -84,6 +85,7 @@ void AudioDucker::saveSettings(const AudioDuckerSettings &settingsData) {
     settings.beginGroup(kSettingsGroup);
     settings.setValue("enabled", settingsData.enabled);
     settings.setValue("monitorEntireOutput", settingsData.monitorEntireOutput);
+    settings.setValue("instantDuck", settingsData.instantDuck);
     settings.setValue("monitorDeviceId", settingsData.monitorDeviceId);
     settings.setValue("monitorDeviceName", settingsData.monitorDeviceName);
     settings.setValue("monitorProcessName", settingsData.monitorProcessName);
@@ -102,6 +104,7 @@ QVector<AudioOutputDeviceOption> AudioDucker::availableOutputDevices() {
 void AudioDucker::setSettings(const AudioDuckerSettings &settingsData) {
     currentSettings.enabled = settingsData.enabled;
     currentSettings.monitorEntireOutput = settingsData.monitorEntireOutput;
+    currentSettings.instantDuck = settingsData.instantDuck;
     currentSettings.monitorDeviceId = settingsData.monitorDeviceId.trimmed();
     currentSettings.monitorDeviceName = settingsData.monitorDeviceName.trimmed();
     currentSettings.monitorProcessName = settingsData.monitorProcessName.trimmed();
@@ -135,7 +138,7 @@ void AudioDucker::updateSpotifyState(int volume, bool volumeControlSupported) {
         lastRampEmittedVolume = currentSpotifyVolume;
     }
 
-    if (!duckingActive) {
+    if (!duckingActive && !restoreRampInProgress()) {
         restoreVolume = currentSpotifyVolume;
     }
 
@@ -194,7 +197,7 @@ void AudioDucker::handlePeakLevel(double peakLevel) {
         if (!duckingActive && currentSpotifyVolume > currentSettings.duckedVolume && canSendVolumeCommand()) {
             restoreVolume = currentSpotifyVolume;
             duckingActive = true;
-            requestVolumeChange(currentSettings.duckedVolume);
+            requestVolumeChange(currentSettings.duckedVolume, currentSettings.instantDuck);
         }
 
         updateStatusText(QString("Ducking Spotify while %1 is active").arg(currentMonitorLabel()));
@@ -217,7 +220,7 @@ void AudioDucker::handlePeakLevel(double peakLevel) {
     }
 }
 
-void AudioDucker::requestVolumeChange(int targetVolume) {
+void AudioDucker::requestVolumeChange(int targetVolume, bool immediate) {
     const int boundedVolume = qBound(0, targetVolume, 100);
     if (boundedVolume == currentSpotifyVolume || pendingRequestedVolume == boundedVolume) {
         return;
@@ -236,6 +239,13 @@ void AudioDucker::requestVolumeChange(int targetVolume) {
 
     if (rampStartVolume == rampTargetVolume) {
         pendingRequestedVolume = -1;
+        return;
+    }
+
+    if (immediate) {
+        rampTimer->stop();
+        lastRampEmittedVolume = boundedVolume;
+        emit volumeAdjustmentRequested(boundedVolume);
         return;
     }
 
@@ -299,6 +309,10 @@ void AudioDucker::restoreVolumeIfNeeded() {
 
 bool AudioDucker::canSendVolumeCommand() const {
     return !lastVolumeCommandTimer.isValid() || lastVolumeCommandTimer.elapsed() >= currentSettings.cooldownMs;
+}
+
+bool AudioDucker::restoreRampInProgress() const {
+    return !duckingActive && rampTimer->isActive();
 }
 
 QString AudioDucker::currentMonitorLabel() const {

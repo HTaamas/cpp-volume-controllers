@@ -3,6 +3,7 @@
 
 #ifdef _WIN32
 HHOOK VolumeHandler::hHook = nullptr;
+bool VolumeHandler::duckingToggleChordDown = false;
 
 VolumeHandler::VolumeHandler(QObject *parent) : QObject(parent) {
     instance = this;
@@ -28,7 +29,21 @@ VolumeHandler::~VolumeHandler() {
 LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     if (nCode == HC_ACTION) {
         KBDLLHOOKSTRUCT *pKey = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
+        if (wParam == WM_KEYUP || wParam == WM_SYSKEYUP) {
+            if (pKey->vkCode == 'D') {
+                duckingToggleChordDown = false;
+            }
+        }
+
         if (wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN) {
+            if (pKey->vkCode == 'D' && (GetAsyncKeyState(VK_MENU) & 0x8000) != 0) {
+                if (!duckingToggleChordDown && instance) {
+                    duckingToggleChordDown = true;
+                    emit instance->toggleDuckingRequested();
+                }
+                return 1;
+            }
+
             if (pKey->vkCode == VK_VOLUME_UP || pKey->vkCode == VK_VOLUME_DOWN) {
                 const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 const bool useFineStep = instance && instance->keybindSettings.useShiftForFineAdjust && isShift;

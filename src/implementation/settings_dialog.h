@@ -53,6 +53,7 @@ private:
     QTabWidget *tabs;
     QCheckBox *audioDuckerEnabledCheck;
     QCheckBox *monitorEntireOutputCheck;
+    QCheckBox *instantDuckCheck;
     QComboBox *monitorDeviceCombo;
     QLineEdit *monitorProcessEdit;
     QSpinBox *duckedVolumeSpin;

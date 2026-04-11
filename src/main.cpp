@@ -14,6 +14,7 @@
 #include <exception>
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QSignalBlocker>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -262,6 +263,15 @@ int main(int argc, char *argv[]) {
         currentVolume = requestedVolume;
         audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
+    });
+
+    QObject::connect(&volHandler, &VolumeHandler::toggleDuckingRequested, [&]() {
+        AudioDuckerSettings settings = audioDucker.settings();
+        settings.enabled = !settings.enabled;
+        audioDucker.setSettings(settings);
+
+        const QSignalBlocker blocker(&settingsDialog);
+        settingsDialog.setAudioDuckerSettings(settings);
     });
 
     // Check if we need to auth

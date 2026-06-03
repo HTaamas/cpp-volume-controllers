@@ -177,12 +177,14 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     coarseStepSpin->setRange(1, 25);
     fineStepSpin = new QSpinBox(this);
     fineStepSpin->setRange(1, 25);
+    togglePlayEdit = new QLineEdit(this);
     useShiftFineAdjustCheck = new QCheckBox("Use Shift for fine adjustment", this);
     QLabel *duckingToggleHint = new QLabel("Global ducking toggle: Alt+D", this);
     duckingToggleHint->setWordWrap(true);
 
     keybindsLayout->addRow("Coarse step", coarseStepSpin);
     keybindsLayout->addRow("Fine step", fineStepSpin);
+    keybindsLayout->addRow("Toggle play/pause (VK)", togglePlayEdit);
     keybindsLayout->addRow(QString(), useShiftFineAdjustCheck);
     keybindsLayout->addRow(QString(), duckingToggleHint);
     tabs->addTab(keybindsTab, "Keybinds");
@@ -299,6 +301,7 @@ OverlaySettings SettingsDialog::overlaySettings() const {
 void SettingsDialog::setKeybindSettings(const KeybindSettings &settings) {
     coarseStepSpin->setValue(settings.coarseStep);
     fineStepSpin->setValue(settings.fineStep);
+    togglePlayEdit->setText(settings.togglePlay);
     useShiftFineAdjustCheck->setChecked(settings.useShiftForFineAdjust);
 }
 
@@ -306,6 +309,7 @@ KeybindSettings SettingsDialog::keybindSettings() const {
     KeybindSettings settings;
     settings.coarseStep = coarseStepSpin->value();
     settings.fineStep = fineStepSpin->value();
+    settings.togglePlay = togglePlayEdit->text().trimmed();
     settings.useShiftForFineAdjust = useShiftFineAdjustCheck->isChecked();
     return settings;
 }
@@ -340,6 +344,7 @@ void SettingsDialog::wireOverlayControls() {
 void SettingsDialog::wireKeybindControls() {
     connect(coarseStepSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit keybindSettingsChanged(); });
     connect(fineStepSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit keybindSettingsChanged(); });
+    connect(togglePlayEdit, &QLineEdit::textChanged, this, &SettingsDialog::keybindSettingsChanged);
     connect(useShiftFineAdjustCheck, &QCheckBox::toggled, this, &SettingsDialog::keybindSettingsChanged);
 }
 

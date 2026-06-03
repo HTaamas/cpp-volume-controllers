@@ -22,6 +22,7 @@ public:
     explicit SpotifyClient(QObject *parent = nullptr);
     void startAuth();
     bool setVolume(int volume);
+    void togglePlayPause();
     void pollPlayback();
     bool hasCredentialsConfigured() const;
     bool hasStoredSession() const;

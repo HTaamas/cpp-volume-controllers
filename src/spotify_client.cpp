@@ -12,6 +12,8 @@ constexpr auto kSpotifyAuthScope = "user-modify-playback-state user-read-playbac
 const QUrl kAuthorizeUrl(QStringLiteral("https://accounts.spotify.com/authorize"));
 const QUrl kTokenUrl(QStringLiteral("https://accounts.spotify.com/api/token"));
 const QUrl kPlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player"));
+const QUrl kStartPlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/play"));
+const QUrl kPausePlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/pause"));
 const QUrl kVolumeUrl(QStringLiteral("https://api.spotify.com/v1/me/player/volume"));
 }
 
@@ -166,7 +168,7 @@ bool SpotifyClient::setVolume(int volume) {
     currentVolume = qBound(0, volume, 100);
     pendingVolume = currentVolume;
     pendingVolumeTimer.restart();
-    
+
     QUrl url(kVolumeUrl);
     QUrlQuery query;
     query.addQueryItem("volume_percent", QString::number(currentVolume));
@@ -175,6 +177,27 @@ bool SpotifyClient::setVolume(int volume) {
     QNetworkReply *reply = network->put(authorizedRequest(url), QByteArray());
     connect(reply, &QNetworkReply::finished, [this, reply]() { handleVolumeResponse(reply); });
     return true;
+}
+
+void SpotifyClient::togglePlayPause() {
+    if (accessToken.isEmpty()) {
+        return;
+    }
+
+    pollPlayback(); // Ensure we have the latest playback state before toggling.
+
+    if (lastIsPlaying) {
+        QNetworkRequest request(kPausePlaybackUrl);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+        QNetworkReply *reply = network->put(authorizedRequest(kPausePlaybackUrl), QByteArray());
+        connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
+        return;
+    }
+
+    QNetworkRequest request(kStartPlaybackUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QNetworkReply *reply = network->put(authorizedRequest(kStartPlaybackUrl), QByteArray());
+    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
 }
 
 void SpotifyClient::pollPlayback() {
@@ -186,7 +209,7 @@ void SpotifyClient::pollPlayback() {
         }
         return;
     }
-    
+
     QNetworkReply *reply = network->get(authorizedRequest(kPlaybackUrl));
     connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
 }
@@ -200,7 +223,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
             reply->deleteLater();
             return; // 204 No Content / no active playback payload
         }
-        
+
         QJsonDocument doc = QJsonDocument::fromJson(data);
         if (!doc.isObject()) {
             qDebug() << "Playback Error: invalid JSON payload";
@@ -219,10 +242,10 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
             reply->deleteLater();
             return;
         }
-        
+
         QString trackId = item["id"].toString();
         QString trackName = item["name"].toString();
-        
+
         QString artistName;
         QJsonArray artistsArray = item["artists"].toArray();
         for (int i = 0; i < artistsArray.size(); ++i) {

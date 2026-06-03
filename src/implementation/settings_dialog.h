@@ -79,6 +79,7 @@ private:
     QSpinBox *coarseStepSpin;
     QSpinBox *fineStepSpin;
     QCheckBox *useShiftFineAdjustCheck;
+    QLineEdit *togglePlayEdit;
 
     bool credentialsConfigured = false;
     bool authenticated = false;

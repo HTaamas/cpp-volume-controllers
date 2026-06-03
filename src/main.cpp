@@ -265,6 +265,14 @@ int main(int argc, char *argv[]) {
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
+    QObject::connect(&volHandler, &VolumeHandler::toggleMusic, [&]() {
+        spotify.togglePlayPause();
+
+        spotify.pollPlayback(); // Poll immediately to update state based on the toggle.
+
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
+    });
+
     QObject::connect(&volHandler, &VolumeHandler::toggleDuckingRequested, [&]() {
         AudioDuckerSettings settings = audioDucker.settings();
         settings.enabled = !settings.enabled;

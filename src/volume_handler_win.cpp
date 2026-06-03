@@ -44,6 +44,14 @@ LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, L
                 return 1;
             }
 
+            if (pKey->vkCode == instance->keybindSettings.togglePlay.toInt(nullptr, 16)) {
+                if (instance) {
+                    emit instance->toggleMusic();
+                }
+
+                return 1;
+            }
+
             if (pKey->vkCode == VK_VOLUME_UP || pKey->vkCode == VK_VOLUME_DOWN) {
                 const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 const bool useFineStep = instance && instance->keybindSettings.useShiftForFineAdjust && isShift;

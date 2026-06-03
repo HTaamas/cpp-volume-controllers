@@ -48,6 +48,7 @@ KeybindSettings loadKeybindSettings() {
     config.coarseStep = qBound(1, settings.value("coarseStep", config.coarseStep).toInt(), 25);
     config.fineStep = qBound(1, settings.value("fineStep", config.fineStep).toInt(), 25);
     config.useShiftForFineAdjust = settings.value("useShiftForFineAdjust", config.useShiftForFineAdjust).toBool();
+    config.togglePlay = settings.value("togglePlay", config.togglePlay).toString();
 
     settings.endGroup();
     return config;
@@ -59,6 +60,7 @@ void saveKeybindSettings(const KeybindSettings &config) {
     settings.setValue("coarseStep", config.coarseStep);
     settings.setValue("fineStep", config.fineStep);
     settings.setValue("useShiftForFineAdjust", config.useShiftForFineAdjust);
+    settings.setValue("togglePlay", config.togglePlay);
     settings.endGroup();
 }
 }

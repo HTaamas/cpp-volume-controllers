@@ -20,6 +20,7 @@ struct KeybindSettings {
     int coarseStep = 5;
     int fineStep = 1;
     bool useShiftForFineAdjust = true;
+    QString togglePlay = "0xFF";
 };
 
 namespace AppSettings {

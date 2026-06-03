@@ -27,6 +27,7 @@ public:
 
 signals:
     void volumeChanged(int delta);
+    void toggleMusic();
     void toggleDuckingRequested();
 
 private:

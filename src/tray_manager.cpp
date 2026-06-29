@@ -6,6 +6,7 @@
 #include <QLinearGradient>
 #include <QRadialGradient>
 #include <QApplication>
+#include <QTimer>
 
 namespace {
 QIcon createTrayIcon() {
@@ -63,19 +64,18 @@ QIcon createTrayIcon() {
 
 TrayManager::TrayManager(QObject *parent) : QObject(parent) {
     trayIcon = new QSystemTrayIcon(createTrayIcon(), this);
-    QMenu *menu = new QMenu();
+    trayMenu = new QMenu();
 
-    trackAction = menu->addAction("Current Playing: None");
+    trackAction = trayMenu->addAction("Current Playing: None");
     trackAction->setEnabled(false);
 
-    settingsAction = menu->addAction("Settings");
+    settingsAction = trayMenu->addAction("Settings");
     connect(settingsAction, &QAction::triggered, this, &TrayManager::settingsRequested);
 
-    menu->addSeparator();
-    QAction *quitAction = menu->addAction("Quit");
+    trayMenu->addSeparator();
+    QAction *quitAction = trayMenu->addAction("Quit");
     connect(quitAction, &QAction::triggered, QApplication::quit);
 
-    trayIcon->setContextMenu(menu);
     connect(trayIcon, &QSystemTrayIcon::activated, this, &TrayManager::handleTrayActivation);
     trayIcon->show();
 }
@@ -85,7 +85,24 @@ void TrayManager::updateTrackInfo(const QString &track, const QString &artist) {
 }
 
 void TrayManager::handleTrayActivation(QSystemTrayIcon::ActivationReason reason) {
+    #if defined(_WIN32) || defined(__linux__)
     if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-        emit settingsRequested();
+        QTimer::singleShot(0, this, [this]() {
+            emit settingsRequested();
+        });
+    } else if (reason == QSystemTrayIcon::Context) {
+        trayMenu->popup(QCursor::pos());
     }
+    #endif
+    #ifdef __APPLE__
+    if (reason == QSystemTrayIcon::Trigger) {
+        if (!menuVisible) {
+            trayMenu->popup(QCursor::pos());
+            menuVisible = true;
+        } else {
+            trayMenu->hide();
+            menuVisible = false;
+        }
+    }
+    #endif
 }

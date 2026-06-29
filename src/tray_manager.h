@@ -4,6 +4,7 @@
 #include <QSystemTrayIcon>
 #include <QMenu>
 #include <QAction>
+#include <QPoint>
 
 class TrayManager : public QObject {
     Q_OBJECT
@@ -19,8 +20,12 @@ private slots:
 
 private:
     QSystemTrayIcon *trayIcon;
+    QMenu *trayMenu;
     QAction *trackAction;
     QAction *settingsAction;
+    #ifdef Q_OS_MAC
+    bool menuVisible = false;
+    #endif
 };
 
 #endif // TRAY_MANAGER_H

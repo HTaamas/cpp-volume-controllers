@@ -71,12 +71,14 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     connectionValueLabel = new QLabel(this);
     credentialsValueLabel = new QLabel(this);
     redirectUriValueLabel = new QLabel(this);
+    rateLimitValueLabel = new QLabel(this);
     helpTextLabel = new QLabel(this);
     helpTextLabel->setWordWrap(true);
 
     spotifyLayout->addWidget(createRow("Status", connectionValueLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("Credentials", credentialsValueLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("Redirect URI", redirectUriValueLabel, spotifyTab));
+    spotifyLayout->addWidget(createRow("API rate limit", rateLimitValueLabel, spotifyTab));
     spotifyLayout->addWidget(helpTextLabel);
 
     connectButton = new QPushButton(this);
@@ -218,6 +220,11 @@ void SettingsDialog::setAuthenticated(bool isAuthenticated) {
 
 void SettingsDialog::setRedirectUri(const QString &redirectUri) {
     redirectUriValueLabel->setText(redirectUri);
+}
+
+void SettingsDialog::setRateLimitStatusText(const QString &text) {
+    rateLimitStatusText = text;
+    rateLimitValueLabel->setText(text);
 }
 
 #ifdef _WIN32
@@ -378,6 +385,7 @@ void SettingsDialog::updateColorPreview(QLineEdit *edit, QLabel *preview) {
 void SettingsDialog::refreshUi() {
     credentialsValueLabel->setText(credentialsConfigured ? "Configured" : "Missing");
     connectionValueLabel->setText(authenticated ? "Connected" : "Not connected");
+    rateLimitValueLabel->setText(rateLimitStatusText);
 
     if (!credentialsConfigured) {
         connectButton->setEnabled(false);

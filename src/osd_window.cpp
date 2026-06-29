@@ -38,6 +38,16 @@ QString makeProgressStyle(const QString &backgroundColor, const QString &chunkCo
     ).arg(backgroundColor).arg(radius).arg(chunkColor);
 }
 
+QString formatDurationMs(int ms) {
+    const int totalSeconds = qMax(0, ms) / 1000;
+    const int minutes = totalSeconds / 60;
+    const int seconds = totalSeconds % 60;
+    if (minutes > 0) {
+        return QString("%1m %2s").arg(minutes).arg(seconds);
+    }
+    return QString("%1s").arg(seconds);
+}
+
 QPixmap makeRoundedPixmap(const QPixmap &source, int targetSize, qreal radius) {
     QPixmap scaled = source.scaled(targetSize, targetSize, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
 
@@ -365,6 +375,39 @@ void OSDWindow::showVolume(int volume, const QString &track, const QString &arti
     } else {
         showOverlay();
     }
+}
+
+void OSDWindow::showRateLimitMessage(int retryAfterMs) {
+    positionOnActiveScreen();
+    isPlayingNow = false;
+    volumeControlSupportedNow = false;
+    currentProgressMs = 0;
+    totalDurationMs = 0;
+
+    trackLabel->setText("Spotify API rate limited");
+    artistLabel->setText("Polling paused until the retry window ends");
+    volumeLabel->setText("API limited");
+    volumeLabel->setStyleSheet(QString("color: %1; font-size: 12px; font-weight: 600; border: none;").arg(overlaySettings.mutedTextColor));
+    volumeBar->setRange(0, 100);
+    volumeBar->setValue(0);
+    songProgressBar->setRange(0, 1);
+    songProgressBar->setValue(0);
+    timeLabel->setText(QString("Retry in %1").arg(formatDurationMs(retryAfterMs)));
+    trackLabel->setScrollingEnabled(false);
+    artistLabel->setScrollingEnabled(false);
+    setPausedOverlayVisible(true);
+    applyAlbumArtFallback();
+    albumArtLabel->setText("⏳");
+    showOverlay();
+    hideTimer->start(5000);
+}
+
+void OSDWindow::updateRateLimitMessage(int retryAfterMs) {
+    if (!isVisible()) {
+        return;
+    }
+
+    timeLabel->setText(QString("Retry in %1").arg(formatDurationMs(retryAfterMs)));
 }
 
 void OSDWindow::syncProgress(int progressMs, bool isPlaying, bool volumeControlSupported) {

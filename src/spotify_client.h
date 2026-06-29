@@ -27,10 +27,13 @@ public:
     bool hasCredentialsConfigured() const;
     bool hasStoredSession() const;
     QString authRedirectUri() const;
+    bool isRateLimited() const;
+    int rateLimitRemainingMs() const;
 
 signals:
     void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported);
     void stateSynced(int volume, int progressMs, bool isPlaying, bool volumeControlSupported);
+    void rateLimitChanged(int retryAfterMs);
     void authComplete();
 
 private slots:
@@ -46,6 +49,9 @@ private:
     void postTokenRequest(const QUrlQuery &body, const std::function<void(QNetworkReply *)> &handler);
     void setVolumeControlSupported(bool supported);
     void emitPlaybackState();
+    void emitRateLimitState(int retryAfterMs);
+    void enterRateLimitCooldown(int retryAfterMs);
+    int parseRetryAfterMs(QNetworkReply *reply) const;
     void refreshAccessToken();
     void saveTokens();
     void loadTokens();
@@ -62,6 +68,10 @@ private:
     bool lastIsPlaying = false;
     int pendingVolume = -1;
     QElapsedTimer pendingVolumeTimer;
+    QTimer *pollTimer = nullptr;
+    QTimer *rateLimitTimer = nullptr;
+    bool rateLimited = false;
+    int rateLimitRetryAfterMs = 0;
 
     QTcpServer *authServer = nullptr;
     const int redirectPort = AppConfig::REDIRECT_PORT;

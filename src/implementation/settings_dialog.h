@@ -23,6 +23,7 @@ public:
     void setCredentialsConfigured(bool configured);
     void setAuthenticated(bool authenticated);
     void setRedirectUri(const QString &redirectUri);
+    void setRateLimitStatusText(const QString &text);
     #ifdef _WIN32
     void setAudioDuckerSettings(const AudioDuckerSettings &settings);
     AudioDuckerSettings audioDuckerSettings() const;
@@ -55,6 +56,7 @@ private:
     QLabel *connectionValueLabel;
     QLabel *credentialsValueLabel;
     QLabel *redirectUriValueLabel;
+    QLabel *rateLimitValueLabel;
     QLabel *helpTextLabel;
     #ifdef _WIN32
     QLabel *audioDuckerStatusLabel;
@@ -95,6 +97,7 @@ private:
 
     bool credentialsConfigured = false;
     bool authenticated = false;
+    QString rateLimitStatusText = "Not rate limited";
 };
 
 #endif // SETTINGS_DIALOG_H

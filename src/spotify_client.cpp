@@ -5,6 +5,8 @@
 #include <QProcessEnvironment>
 #include <QFile>
 #include <QCoreApplication>
+#include <QDateTime>
+#include <QRegularExpression>
 
 namespace {
 constexpr int kPendingVolumeGracePeriodMs = 2500;
@@ -20,9 +22,21 @@ const QUrl kVolumeUrl(QStringLiteral("https://api.spotify.com/v1/me/player/volum
 SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNetworkAccessManager(this)) {
     loadTokens();
 
-    QTimer *pollTimer = new QTimer(this);
+    pollTimer = new QTimer(this);
     connect(pollTimer, &QTimer::timeout, this, &SpotifyClient::pollPlayback);
     pollTimer->start(AppConfig::POLL_INTERVAL_MS);
+
+    rateLimitTimer = new QTimer(this);
+    rateLimitTimer->setSingleShot(true);
+    connect(rateLimitTimer, &QTimer::timeout, this, [this]() {
+        rateLimited = false;
+        rateLimitRetryAfterMs = 0;
+        emitRateLimitState(0);
+        if (!pollTimer->isActive()) {
+            pollTimer->start(AppConfig::POLL_INTERVAL_MS);
+        }
+        pollPlayback();
+    });
 }
 
 QString SpotifyClient::redirectUri() const {
@@ -66,6 +80,60 @@ void SpotifyClient::setVolumeControlSupported(bool supported) {
 
 void SpotifyClient::emitPlaybackState() {
     emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeControlSupported);
+}
+
+void SpotifyClient::emitRateLimitState(int retryAfterMs) {
+    emit rateLimitChanged(retryAfterMs);
+}
+
+bool SpotifyClient::isRateLimited() const {
+    return rateLimited;
+}
+
+int SpotifyClient::rateLimitRemainingMs() const {
+    if (!rateLimited || !rateLimitTimer->isActive()) {
+        return 0;
+    }
+
+    return qMax(0, rateLimitTimer->remainingTime());
+}
+
+int SpotifyClient::parseRetryAfterMs(QNetworkReply *reply) const {
+    const QByteArray retryAfterValue = reply->rawHeader("Retry-After");
+    if (retryAfterValue.isEmpty()) {
+        return 60000;
+    }
+
+    bool ok = false;
+    const int seconds = QString::fromLatin1(retryAfterValue).trimmed().toInt(&ok);
+    if (ok && seconds >= 0) {
+        return seconds * 1000;
+    }
+
+    const QDateTime retryAt = QDateTime::fromString(QString::fromLatin1(retryAfterValue).trimmed(), Qt::RFC2822Date);
+    if (retryAt.isValid()) {
+        const qint64 deltaMs = QDateTime::currentDateTimeUtc().msecsTo(retryAt.toUTC());
+        return static_cast<int>(qMax<qint64>(1000, deltaMs));
+    }
+
+    return 60000;
+}
+
+void SpotifyClient::enterRateLimitCooldown(int retryAfterMs) {
+    const int normalizedRetryAfterMs = qMax(1000, retryAfterMs);
+
+    if (rateLimited && rateLimitTimer->isActive()) {
+        const int remainingMs = rateLimitTimer->remainingTime();
+        if (remainingMs > normalizedRetryAfterMs) {
+            return;
+        }
+    }
+
+    rateLimited = true;
+    rateLimitRetryAfterMs = normalizedRetryAfterMs;
+    pollTimer->stop();
+    rateLimitTimer->start(normalizedRetryAfterMs);
+    emitRateLimitState(normalizedRetryAfterMs);
 }
 
 void SpotifyClient::startAuth() {
@@ -161,7 +229,7 @@ void SpotifyClient::handleTokenResponse(QNetworkReply *reply) {
 }
 
 bool SpotifyClient::setVolume(int volume) {
-    if (accessToken.isEmpty() || !volumeControlSupported) {
+    if (accessToken.isEmpty() || !volumeControlSupported || isRateLimited()) {
         return false;
     }
 
@@ -180,7 +248,7 @@ bool SpotifyClient::setVolume(int volume) {
 }
 
 void SpotifyClient::togglePlayPause() {
-    if (accessToken.isEmpty()) {
+    if (accessToken.isEmpty() || isRateLimited()) {
         return;
     }
 
@@ -201,6 +269,10 @@ void SpotifyClient::togglePlayPause() {
 }
 
 void SpotifyClient::pollPlayback() {
+    if (isRateLimited()) {
+        return;
+    }
+
     if (accessToken.isEmpty()) {
         if (!refreshToken.isEmpty()) {
             refreshAccessToken();
@@ -292,6 +364,8 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         } else if (statusCode == 403 || statusCode == 404) {
             setVolumeControlSupported(false);
             emitPlaybackState();
+        } else if (statusCode == 429) {
+            enterRateLimitCooldown(parseRetryAfterMs(reply));
         } else {
             qDebug() << "Playback Error:" << reply->errorString() << "status" << statusCode;
         }
@@ -306,6 +380,8 @@ void SpotifyClient::handleVolumeResponse(QNetworkReply *reply) {
         if (statusCode == 403 || statusCode == 404) {
             setVolumeControlSupported(false);
             emitPlaybackState();
+        } else if (statusCode == 429) {
+            enterRateLimitCooldown(parseRetryAfterMs(reply));
         }
         pendingVolume = -1;
     }

@@ -18,16 +18,16 @@ Run these from the project root.
 $env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 
 # 2) Configure a MinGW build directory
-cmake -S . -B build-mingw -G Ninja `
+cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
   -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
   -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
 
 # 3) Build
-cmake --build build-mingw -j
+cmake --build build -j
 
 # 4) Deploy Qt runtime DLLs next to the exe
-C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build-mingw build-mingw/SpotifyVol.exe
+C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build-mingw build/SpotifyVol.exe
 ```
 
 Output executable:
@@ -38,14 +38,14 @@ Output executable:
 
 ```powershell
 $env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
-cmake --build build-mingw -j
-C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build-mingw build-mingw/SpotifyVol.exe
+cmake --build build -j
+C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
 ```
 
 ## Run
 
 ```powershell
-./build-mingw/SpotifyVol.exe
+./build/SpotifyVol.exe
 ```
 
 ## Clean Reconfigure
@@ -53,20 +53,20 @@ C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build-mingw bu
 If CMake cache/toolchain gets mixed up, delete and reconfigure:
 
 ```powershell
-Remove-Item -Recurse -Force build-mingw
+Remove-Item -Recurse -Force build
 $env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
-cmake -S . -B build-mingw -G Ninja `
+cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
   -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
   -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
-cmake --build build-mingw -j
+cmake --build build -j
 ```
 
 ## Common Pitfalls
 
 - Do not run `make` for this setup.
   - Ninja generator does not produce a Makefile.
-  - Use `cmake --build build-mingw` instead.
+  - Use `cmake --build build` instead.
 
 - If you see `Qt6Gui.dll`, `Qt6Core.dll`, `Qt6Network.dll`, or `Qt6Widgets.dll` missing:
   - Run `windeployqt` (step 4 above) to copy Qt runtime DLLs and plugins.
@@ -86,19 +86,21 @@ On macOS, the app now builds as a proper `.app` bundle instead of a terminal-sty
 Run these from the project root.
 
 ```bash
-cmake -S . -B build-mac -DCMAKE_BUILD_TYPE=Release
-cmake --build build-mac -j
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
 Bundle output:
 
-- `build-mac/SpotifyVol.app`
+- `build/SpotifyVol.app`
 
 Run it with:
 
 ```bash
-open build-mac/SpotifyVol.app
+open build/SpotifyVol.app
 ```
+
+The macOS build signs the app bundle automatically after each build so privacy permissions do not need to be re-granted on every rebuild. This development signing step does not use hardened runtime, which allows the app to load the Qt frameworks installed through Homebrew. If you later want a release-style hardened build, the Qt frameworks need to be bundled inside the app and signed with the same identity.
 
 # Linux Build
 
@@ -109,8 +111,8 @@ Linux can build the Qt app already, but the current codebase does not yet implem
 Run these from the project root.
 
 ```bash
-cmake -S . -B build-linux -DCMAKE_BUILD_TYPE=Release
-cmake --build build-linux -j
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
 ```
 
 Output executable:

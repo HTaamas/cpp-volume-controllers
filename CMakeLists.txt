@@ -214,6 +214,38 @@ if(APPLE)
         MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos/Info.plist.in"
     )
+
+    set(MACOS_CODESIGN_IDENTITY "$ENV{CODESIGN_IDENTITY}" CACHE STRING "macOS codesign identity used for post-build signing")
+    if(MACOS_CODESIGN_IDENTITY STREQUAL "")
+        execute_process(
+            COMMAND security find-identity -v -p codesigning
+            OUTPUT_VARIABLE MACOS_CODESIGN_IDENTITIES
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+            RESULT_VARIABLE MACOS_CODESIGN_STATUS
+        )
+        if(MACOS_CODESIGN_STATUS EQUAL 0)
+            string(REGEX MATCH "Apple Development: [^\"]+" MACOS_CODESIGN_MATCH "${MACOS_CODESIGN_IDENTITIES}")
+            if(MACOS_CODESIGN_MATCH)
+                set(MACOS_CODESIGN_IDENTITY "${MACOS_CODESIGN_MATCH}" CACHE STRING "macOS codesign identity used for post-build signing" FORCE)
+            endif()
+        endif()
+    endif()
+
+    if(MACOS_CODESIGN_IDENTITY STREQUAL "")
+        message(WARNING "No macOS codesign identity found. Build will continue unsigned and TCC prompts may reappear after rebuilds.")
+    else()
+        add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+            COMMAND /usr/bin/xattr -cr "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>"
+            COMMAND /usr/bin/codesign
+                --force
+                --deep
+                --sign "${MACOS_CODESIGN_IDENTITY}"
+                "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>"
+            VERBATIM
+            COMMENT "Signing ${PROJECT_NAME}.app with ${MACOS_CODESIGN_IDENTITY}"
+        )
+    endif()
+
     target_link_libraries(${PROJECT_NAME} PRIVATE
         "-framework AppKit"
         "-framework ApplicationServices"

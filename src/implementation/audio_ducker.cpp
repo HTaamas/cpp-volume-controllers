@@ -95,11 +95,13 @@ void AudioDucker::saveSettings(const AudioDuckerSettings &settingsData) {
     settings.setValue("releaseHoldMs", settingsData.releaseHoldMs);
     settings.endGroup();
 }
-
+#ifdef _WIN32
 QVector<AudioOutputDeviceOption> AudioDucker::availableOutputDevices() {
     AudioDucker probe;
     return probe.enumerateOutputDevices();
 }
+#endif
+
 
 void AudioDucker::setSettings(const AudioDuckerSettings &settingsData) {
     currentSettings.enabled = settingsData.enabled;

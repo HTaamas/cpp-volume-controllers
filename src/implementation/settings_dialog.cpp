@@ -85,6 +85,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     spotifyLayout->addStretch();
     tabs->addTab(spotifyTab, "Spotify");
 
+    #ifdef _WIN32
     QWidget *duckingTab = new QWidget(this);
     QVBoxLayout *duckingLayout = new QVBoxLayout(duckingTab);
     duckingLayout->setContentsMargins(12, 12, 12, 12);
@@ -131,6 +132,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     duckingLayout->addWidget(audioDuckerStatusLabel);
     duckingLayout->addStretch();
     tabs->addTab(duckingTab, "Ducking");
+    #endif
 
     QWidget *overlayTab = new QWidget(this);
     QFormLayout *overlayLayout = new QFormLayout(overlayTab);
@@ -191,7 +193,9 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
 
     layout->addWidget(tabs);
 
+    #ifdef _WIN32
     wireAudioDuckerControls();
+    #endif
     wireOverlayControls();
     wireKeybindControls();
 
@@ -216,6 +220,7 @@ void SettingsDialog::setRedirectUri(const QString &redirectUri) {
     redirectUriValueLabel->setText(redirectUri);
 }
 
+#ifdef _WIN32
 void SettingsDialog::setAudioDuckerSettings(const AudioDuckerSettings &settings) {
     audioDuckerEnabledCheck->setChecked(settings.enabled);
     monitorEntireOutputCheck->setChecked(settings.monitorEntireOutput);
@@ -264,6 +269,7 @@ void SettingsDialog::setAvailableAudioDevices(const QVector<AudioOutputDeviceOpt
         monitorDeviceCombo->setCurrentIndex(selectedIndex);
     }
 }
+#endif
 
 void SettingsDialog::setOverlaySettings(const OverlaySettings &settings) {
     backgroundColorEdit->setText(settings.backgroundColor);
@@ -314,6 +320,7 @@ KeybindSettings SettingsDialog::keybindSettings() const {
     return settings;
 }
 
+#ifdef _WIN32
 void SettingsDialog::wireAudioDuckerControls() {
     connect(audioDuckerEnabledCheck, &QCheckBox::toggled, this, &SettingsDialog::audioDuckerSettingsChanged);
     connect(monitorEntireOutputCheck, &QCheckBox::toggled, this, [this](bool checked) {
@@ -328,6 +335,7 @@ void SettingsDialog::wireAudioDuckerControls() {
     connect(cooldownSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
     connect(releaseHoldSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
 }
+#endif
 
 void SettingsDialog::wireOverlayControls() {
     connect(backgroundColorEdit, &QLineEdit::textChanged, this, [this](const QString &) { updateColorPreview(backgroundColorEdit, backgroundColorPreview); emit overlaySettingsChanged(); });

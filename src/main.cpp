@@ -136,8 +136,10 @@ int main(int argc, char *argv[]) {
     settingsDialog.setCredentialsConfigured(spotify.hasCredentialsConfigured());
     settingsDialog.setAuthenticated(spotify.hasStoredSession());
     settingsDialog.setRedirectUri(spotify.authRedirectUri());
+    #ifdef _WIN32
     settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
     settingsDialog.setAudioDuckerSettings(audioDucker.settings());
+    #endif
     settingsDialog.setOverlaySettings(AppSettings::loadOverlaySettings());
     settingsDialog.setKeybindSettings(AppSettings::loadKeybindSettings());
     osd.applyOverlaySettings(settingsDialog.overlaySettings());
@@ -195,8 +197,10 @@ int main(int argc, char *argv[]) {
     });
 
     QObject::connect(&tray, &TrayManager::settingsRequested, [&]() {
+        #ifdef _WIN32
         settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
         settingsDialog.setAudioDuckerSettings(audioDucker.settings());
+        #endif
         settingsDialog.show();
         settingsDialog.raise();
         settingsDialog.activateWindow();
@@ -206,9 +210,11 @@ int main(int argc, char *argv[]) {
         spotify.startAuth();
     });
 
+    #ifdef _WIN32
     QObject::connect(&settingsDialog, &SettingsDialog::audioDuckerSettingsChanged, [&]() {
         audioDucker.setSettings(settingsDialog.audioDuckerSettings());
     });
+    #endif
 
     QObject::connect(&settingsDialog, &SettingsDialog::overlaySettingsChanged, [&]() {
         const OverlaySettings settings = settingsDialog.overlaySettings();
@@ -222,11 +228,13 @@ int main(int argc, char *argv[]) {
         volHandler.applyKeybindSettings(settings);
     });
 
+    #ifdef _WIN32
     QObject::connect(&audioDucker, &AudioDucker::monitorStateChanged, [&](const QString &statusText) {
         settingsDialog.setAudioDuckerStatusText(statusText);
     });
 
     audioDucker.setSettings(settingsDialog.audioDuckerSettings());
+    #endif
 
     QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs, bool isPlaying, bool volumeControlSupported) {
         const bool playbackStateChanged = (isPlaying != currentIsPlaying);
@@ -273,6 +281,7 @@ int main(int argc, char *argv[]) {
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
+    #ifdef _WIN32
     QObject::connect(&volHandler, &VolumeHandler::toggleDuckingRequested, [&]() {
         AudioDuckerSettings settings = audioDucker.settings();
         settings.enabled = !settings.enabled;
@@ -281,6 +290,7 @@ int main(int argc, char *argv[]) {
         const QSignalBlocker blocker(&settingsDialog);
         settingsDialog.setAudioDuckerSettings(settings);
     });
+    #endif
 
     // Check if we need to auth
     QTimer::singleShot(1000, [&spotify]() {

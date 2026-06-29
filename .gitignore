@@ -1,6 +1,7 @@
 .cache/
 build/
 build-mingw/
+build-mac/
 cmake-build-*/
 .env
 

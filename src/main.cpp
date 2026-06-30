@@ -334,9 +334,6 @@ int main(int argc, char *argv[]) {
         spotify.prevTrack();
     });
 
-        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
-    });
-
     #ifdef _WIN32
     QObject::connect(&volHandler, &VolumeHandler::toggleDuckingRequested, [&]() {
         AudioDuckerSettings settings = audioDucker.settings();

@@ -1,97 +1,19 @@
 #include "volume_handler.h"
 #include <QDebug>
-#include <QElapsedTimer>
 #include <QMessageBox>
+#include <QMetaObject>
 
 #ifdef __APPLE__
 #import <AppKit/AppKit.h>
-#include <ApplicationServices/ApplicationServices.h>
-#include <Carbon/Carbon.h>
-#include <IOKit/hidsystem/IOLLEvent.h>
 #include <IOKit/hidsystem/ev_keymap.h>
+#include <IOKit/hidsystem/IOLLEvent.h>
+#include <ApplicationServices/ApplicationServices.h>
 
 namespace {
 constexpr int kKeyStateDown = 0x0A;
 
 bool isVolumeKey(int keyCode) {
     return keyCode == NX_KEYTYPE_SOUND_UP || keyCode == NX_KEYTYPE_SOUND_DOWN;
-}
-
-int mainKeyCodeFromSettings(const KeybindSettings &settings) {
-    bool ok = false;
-    const int vkCode = settings.mainKey.toInt(&ok, 16);
-    if (!ok) {
-        return -1;
-    }
-
-    switch (vkCode) {
-    case 0x08:
-        return kVK_Delete;
-    case 0x09:
-        return kVK_Tab;
-    case 0x0D:
-        return kVK_Return;
-    case 0x10:
-        return kVK_Shift;
-    case 0x11:
-        return kVK_Control;
-    case 0x12:
-        return kVK_Option;
-    case 0x13:
-        return kVK_Command;
-    case 0x14:
-        return kVK_CapsLock;
-    case 0x1B:
-        return kVK_Escape;
-    case 0x20:
-        return kVK_Space;
-    case 0x21:
-        return kVK_PageUp;
-    case 0x22:
-        return kVK_PageDown;
-    case 0x23:
-        return kVK_End;
-    case 0x24:
-        return kVK_Home;
-    case 0x25:
-        return kVK_LeftArrow;
-    case 0x26:
-        return kVK_UpArrow;
-    case 0x27:
-        return kVK_RightArrow;
-    case 0x28:
-        return kVK_DownArrow;
-    case 0x2E:
-        return kVK_ForwardDelete;
-    default:
-        break;
-    }
-
-    if (vkCode >= 0x30 && vkCode <= 0x39) {
-        static const int digitMap[] = {
-            kVK_ANSI_0,
-            kVK_ANSI_1,
-            kVK_ANSI_2,
-            kVK_ANSI_3,
-            kVK_ANSI_4,
-            kVK_ANSI_5,
-            kVK_ANSI_6,
-            kVK_ANSI_7,
-            kVK_ANSI_8,
-            kVK_ANSI_9,
-        };
-        return digitMap[vkCode - 0x30];
-    }
-
-    if (vkCode >= 0x41 && vkCode <= 0x5A) {
-        return kVK_ANSI_A + (vkCode - 0x41);
-    }
-
-    if (vkCode >= 0x70 && vkCode <= 0x7B) {
-        return kVK_F1 + (vkCode - 0x70);
-    }
-
-    return vkCode;
 }
 
 bool ensureMacInputAccess() {
@@ -130,7 +52,7 @@ VolumeHandler::VolumeHandler(QObject *parent) : QObject(parent) {
         kCGSessionEventTap,
         kCGHeadInsertEventTap,
         kCGEventTapOptionDefault,
-        CGEventMaskBit(NX_SYSDEFINED) | CGEventMaskBit(kCGEventKeyDown),
+        CGEventMaskBit(NX_SYSDEFINED),
         MacEventTapCallback,
         this
     );
@@ -176,63 +98,11 @@ CGEventRef VolumeHandler::MacEventTapCallback(CGEventTapProxy, CGEventType type,
         return event;
     }
 
-    static QElapsedTimer nextTrackTimer;
-    static QElapsedTimer prevTrackTimer;
-    const int doubleTapTimeout = 400;
-
     if (type == kCGEventTapDisabledByTimeout || type == kCGEventTapDisabledByUserInput) {
         if (handler->eventTap) {
             CGEventTapEnable(handler->eventTap, true);
         }
         return event;
-    }
-
-    if (type == kCGEventFlagsChanged || type == kCGEventKeyDown) {
-        const int configuredMainKeyCode = mainKeyCodeFromSettings(handler->keybindSettings);
-        if (configuredMainKeyCode < 0) {
-            return event;
-        }
-
-        const int keyCode = static_cast<int>(CGEventGetIntegerValueField(event, kCGKeyboardEventKeycode));
-        if (keyCode != configuredMainKeyCode) {
-            return event;
-        }
-
-        if (type == kCGEventFlagsChanged && keyCode != kVK_CapsLock) {
-            return event;
-        }
-
-        const CGEventFlags flags = CGEventGetFlags(event);
-        const bool isShift = (flags & kCGEventFlagMaskShift) != 0;
-        const bool isCtrl = (flags & kCGEventFlagMaskControl) != 0;
-
-        if (isShift && isCtrl) {
-            return nullptr;
-        }
-
-        if (isShift) {
-            if (!nextTrackTimer.isValid() || nextTrackTimer.elapsed() > doubleTapTimeout) {
-                nextTrackTimer.start();
-            } else {
-                nextTrackTimer.invalidate();
-                if (instance) {
-                    emit instance->nextTrack();
-                }
-            }
-        } else if (isCtrl) {
-            if (!prevTrackTimer.isValid() || prevTrackTimer.elapsed() > doubleTapTimeout) {
-                prevTrackTimer.start();
-            } else {
-                prevTrackTimer.invalidate();
-                if (instance) {
-                    emit instance->prevTrack();
-                }
-            }
-        } else if (instance) {
-            emit instance->toggleMusic();
-        }
-
-        return nullptr;
     }
 
     if (type != static_cast<CGEventType>(NX_SYSDEFINED)) {
@@ -253,9 +123,13 @@ CGEventRef VolumeHandler::MacEventTapCallback(CGEventTapProxy, CGEventType type,
     }
 
     if (keyState == kKeyStateDown && instance) {
-        const bool isShift = (CGEventGetFlags(event) & kCGEventFlagMaskShift) != 0;
+        const bool isShift = (nsEvent.modifierFlags & NSEventModifierFlagShift) != 0;
         const int delta = (keyCode == NX_KEYTYPE_SOUND_UP) ? (isShift ? 1 : 5) : (isShift ? -1 : -5);
-        emit instance->volumeChanged(delta);
+        QMetaObject::invokeMethod(instance, [delta]() {
+            if (instance) {
+                emit instance->volumeChanged(delta);
+            }
+        }, Qt::QueuedConnection);
     }
 
     return nullptr;

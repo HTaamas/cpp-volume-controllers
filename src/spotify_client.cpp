@@ -278,7 +278,7 @@ void SpotifyClient::nextTrack() {
 
     QNetworkRequest request(kNextTrackUrl);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    QNetworkReply *reply = network->put(authorizedRequest(kNextTrackUrl), QByteArray());
+    QNetworkReply *reply = network->post(authorizedRequest(kNextTrackUrl), QByteArray());
     connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
 }
 
@@ -290,7 +290,7 @@ void SpotifyClient::prevTrack() {
 
     QNetworkRequest request(kPrevTrackUrl);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    QNetworkReply *reply = network->put(authorizedRequest(kPrevTrackUrl), QByteArray());
+    QNetworkReply *reply = network->post(authorizedRequest(kPrevTrackUrl), QByteArray());
     connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
 }
 

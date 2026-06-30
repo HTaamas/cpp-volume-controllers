@@ -48,7 +48,9 @@ LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, L
                 const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 const bool isCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
                 if (instance) {
-                    if (isShift) {
+                    if (isShift && isCtrl) {
+                        return 0;
+                    } else if (isShift) {
                         emit instance->nextTrack();
                     } else if (isCtrl) {
                         emit instance->prevTrack();

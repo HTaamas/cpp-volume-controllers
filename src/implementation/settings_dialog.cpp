@@ -183,12 +183,12 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     fineStepSpin->setRange(1, 25);
     mainKeyEdit = new QLineEdit(this);
     useShiftFineAdjustCheck = new QCheckBox("Use Shift for fine adjustment", this);
-    QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x41 for 'A', its used for toggling the playback\nModifier keys(requires double tap): Shift=Skip, Ctrl=Previous", this);
+    QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x41 for 'A'. On macOS, it is translated to the matching mac key code.\nModifier keys (requires double tap): Shift=Skip, Ctrl=Previous", this);
     mainKeyHint->setWordWrap(true);
+    #ifdef _WIN32
     QLabel *duckingToggleHint = new QLabel("Global ducking toggle: Alt+D", this);
     duckingToggleHint->setWordWrap(true);
-
-
+    #endif
 
     keybindsLayout->addRow("Coarse step", coarseStepSpin);
     keybindsLayout->addRow("Fine step", fineStepSpin);

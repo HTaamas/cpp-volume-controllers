@@ -184,7 +184,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     mainKeyEdit = new QLineEdit(this);
     useShiftFineAdjustCheck = new QCheckBox("Use Shift for fine adjustment", this);
     #ifdef _WIN32
-    QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x41 for 'A', its used for toggling the playback\nModifier keys: Shift=Skip, Ctrl=Previous", this);
+    QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x41 for 'A', its used for toggling the playback\nModifier keys(requires double tap): Shift=Skip, Ctrl=Previous", this);
     mainKeyHint->setWordWrap(true);
     QLabel *duckingToggleHint = new QLabel("Global ducking toggle: Alt+D", this);
     duckingToggleHint->setWordWrap(true);

@@ -28,6 +28,8 @@ public:
 signals:
     void volumeChanged(int delta);
     void toggleMusic();
+    void nextTrack();
+    void prevTrack();
     void toggleDuckingRequested();
 
 private:

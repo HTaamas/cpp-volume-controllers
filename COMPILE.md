@@ -27,12 +27,12 @@ cmake -S . -B build -G Ninja `
 cmake --build build -j
 
 # 4) Deploy Qt runtime DLLs next to the exe
-C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build-mingw build/SpotifyVol.exe
+C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
 ```
 
 Output executable:
 
-- `build-mingw/SpotifyVol.exe`
+- `build/SpotifyVol.exe`
 
 ## Rebuild After Changes
 

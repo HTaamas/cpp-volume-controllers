@@ -16,6 +16,8 @@ const QUrl kTokenUrl(QStringLiteral("https://accounts.spotify.com/api/token"));
 const QUrl kPlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player"));
 const QUrl kStartPlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/play"));
 const QUrl kPausePlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/pause"));
+const QUrl kNextTrackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/next"));
+const QUrl kPrevTrackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/previous"));
 const QUrl kVolumeUrl(QStringLiteral("https://api.spotify.com/v1/me/player/volume"));
 }
 
@@ -265,6 +267,30 @@ void SpotifyClient::togglePlayPause() {
     QNetworkRequest request(kStartPlaybackUrl);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
     QNetworkReply *reply = network->put(authorizedRequest(kStartPlaybackUrl), QByteArray());
+    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
+}
+
+void SpotifyClient::nextTrack() {
+    if (accessToken.isEmpty() || isRateLimited()) {
+        return;
+    }
+    pollPlayback();
+
+    QNetworkRequest request(kNextTrackUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QNetworkReply *reply = network->put(authorizedRequest(kNextTrackUrl), QByteArray());
+    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
+}
+
+void SpotifyClient::prevTrack() {
+    if (accessToken.isEmpty() || isRateLimited()) {
+        return;
+    }
+    pollPlayback();
+
+    QNetworkRequest request(kPrevTrackUrl);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    QNetworkReply *reply = network->put(authorizedRequest(kPrevTrackUrl), QByteArray());
     connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
 }
 

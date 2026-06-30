@@ -23,6 +23,8 @@ public:
     void startAuth();
     bool setVolume(int volume);
     void togglePlayPause();
+    void nextTrack();
+    void prevTrack();
     void pollPlayback();
     bool hasCredentialsConfigured() const;
     bool hasStoredSession() const;

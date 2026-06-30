@@ -323,7 +323,16 @@ int main(int argc, char *argv[]) {
     QObject::connect(&volHandler, &VolumeHandler::toggleMusic, [&]() {
         spotify.togglePlayPause();
 
-        spotify.pollPlayback(); // Poll immediately to update state based on the toggle.
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
+    });
+
+    QObject::connect(&volHandler, &VolumeHandler::nextTrack, [&]() {
+        spotify.nextTrack();
+    });
+
+    QObject::connect(&volHandler, &VolumeHandler::prevTrack, [&]() {
+        spotify.prevTrack();
+    });
 
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });

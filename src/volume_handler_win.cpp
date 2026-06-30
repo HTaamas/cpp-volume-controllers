@@ -44,9 +44,15 @@ LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, L
                 return 1;
             }
 
-            if (pKey->vkCode == instance->keybindSettings.togglePlay.toInt(nullptr, 16)) {
+            if (pKey->vkCode == instance->keybindSettings.mainKey.toInt(nullptr, 16)) {
+                const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool isCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
                 if (instance) {
                     emit instance->toggleMusic();
+                } else if (isShift && instance) {
+                    emit instance->nextTrack();
+                } else if (isCtrl && instance) {
+                    emit instance->prevTrack();
                 }
 
                 return 1;

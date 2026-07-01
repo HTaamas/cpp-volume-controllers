@@ -221,8 +221,8 @@ int main(int argc, char *argv[]) {
         audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         updateProgressBaseline(progressMs, isPlaying);
         currentDuration = durationMs;
-        osd.showVolume(volume, track, artist, albumArtUrl, progressMs, durationMs, isPlaying, volumeControlSupported);
-        tray.updateTrackInfo(track, artist);
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
+        tray.updateTrackInfo(currentTrack, currentArtist);
     });
 
     QObject::connect(&spotify, &SpotifyClient::authComplete, [&]() {
@@ -328,10 +328,14 @@ int main(int argc, char *argv[]) {
 
     QObject::connect(&volHandler, &VolumeHandler::nextTrack, [&]() {
         spotify.nextTrack();
+
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
     QObject::connect(&volHandler, &VolumeHandler::prevTrack, [&]() {
         spotify.prevTrack();
+
+        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
     #ifdef _WIN32

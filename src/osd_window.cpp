@@ -79,6 +79,9 @@ public:
         leftFade->hide();
         rightFade->hide();
 
+        setAttribute(Qt::WA_OpaquePaintEvent, false);
+        setAttribute(Qt::WA_NoSystemBackground, true);
+
         timer->setInterval(30);
         connect(timer, &QTimer::timeout, this, [this]() { tick(); });
     }

@@ -26,7 +26,7 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNe
 
     pollTimer = new QTimer(this);
     connect(pollTimer, &QTimer::timeout, this, &SpotifyClient::pollPlayback);
-    pollTimer->start(AppConfig::POLL_INTERVAL_MS);
+    pollTimer->start(getPollIntervalMs());
 
     rateLimitTimer = new QTimer(this);
     rateLimitTimer->setSingleShot(true);
@@ -35,10 +35,27 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNe
         rateLimitRetryAfterMs = 0;
         emitRateLimitState(0);
         if (!pollTimer->isActive()) {
-            pollTimer->start(AppConfig::POLL_INTERVAL_MS);
+            pollTimer->start(getPollIntervalMs());
         }
         pollPlayback();
     });
+}
+
+int SpotifyClient::getPollIntervalMs() {
+    if (isRateLimited()) {
+        return rateLimitRetryAfterMs;
+    } else if (!hasCredentialsConfigured()) {
+        return AppConfig::POLL_INTERVAL_MS;
+    } else if (!hasStoredSession()) {
+        if (localNoDevicePollIntervalMs < AppConfig::NO_DEVICE_POLL_INTERVAL_MAX_MS) {
+            localNoDevicePollIntervalMs += AppConfig::NO_DEVICE_POLL_INTERVAL_INCREMENT_MS;
+        }
+        return localNoDevicePollIntervalMs;
+    } else if (!lastIsPlaying) {
+        return AppConfig::PAUSED_POLL_INTERVAL_MS;
+    } else {
+        return AppConfig::POLL_INTERVAL_MS;
+    }
 }
 
 QString SpotifyClient::redirectUri() const {

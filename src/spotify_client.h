@@ -26,11 +26,15 @@ public:
     void nextTrack();
     void prevTrack();
     void pollPlayback();
+    int getPollIntervalMs();
     bool hasCredentialsConfigured() const;
     bool hasStoredSession() const;
     QString authRedirectUri() const;
     bool isRateLimited() const;
     int rateLimitRemainingMs() const;
+
+
+    QTimer *pollTimer = nullptr;
 
 signals:
     void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported);
@@ -58,6 +62,7 @@ private:
     void saveTokens();
     void loadTokens();
 
+    int localNoDevicePollIntervalMs = AppConfig::NO_DEVICE_POLL_INTERVAL_STARTING_MS;
     QNetworkAccessManager *network;
     const QString clientId = AppConfig::SPOTIFY_CLIENT_ID;
     const QString clientSecret = AppConfig::SPOTIFY_CLIENT_SECRET;
@@ -70,7 +75,6 @@ private:
     bool lastIsPlaying = false;
     int pendingVolume = -1;
     QElapsedTimer pendingVolumeTimer;
-    QTimer *pollTimer = nullptr;
     QTimer *rateLimitTimer = nullptr;
     bool rateLimited = false;
     int rateLimitRetryAfterMs = 0;

@@ -189,6 +189,19 @@ int main(int argc, char *argv[]) {
         return estimated;
     };
 
+    auto updateDynamicSettingsInfo = [&]() {
+        if (!settingsDialog.isVisible()) {
+            return;
+        }
+        const int pollInterval = spotify.getPollIntervalMs();
+        const QString pollText = QString("%1 ms").arg(pollInterval);
+        settingsDialog.setCurrentPollingIntervalText(pollText);
+
+        const int remainingMs = spotify.pollTimer->isActive() ? spotify.pollTimer->remainingTime() : spotify.pollTimer->interval();
+        const QString timeTillNextPollText = formatDurationText(remainingMs);
+        settingsDialog.setTimeTillNextPollText(timeTillNextPollText);
+    };
+
     auto updateRateLimitText = [&](int retryAfterMs) {
         if (retryAfterMs > 0) {
             const QString text = QString("Rate limited for %1").arg(formatDurationText(retryAfterMs));
@@ -247,6 +260,7 @@ int main(int argc, char *argv[]) {
         #ifdef _WIN32
         settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
         settingsDialog.setAudioDuckerSettings(audioDucker.settings());
+        updateDynamicSettingsInfo();
         #endif
         settingsDialog.show();
         settingsDialog.raise();
@@ -356,6 +370,13 @@ int main(int argc, char *argv[]) {
         // In this simple rewrite, we might want to check the token state properly.
         // spotify.startAuth();
     });
+
+    QTimer *settingsUpdateTimer = new QTimer(&app);
+    settingsUpdateTimer->setInterval(1000);
+    QObject::connect(settingsUpdateTimer, &QTimer::timeout, [&]() {
+        updateDynamicSettingsInfo();
+    });
+    settingsUpdateTimer->start();
 
     try {
         return app.exec();

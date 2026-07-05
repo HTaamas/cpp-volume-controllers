@@ -1,4 +1,5 @@
 #include "settings_dialog.h"
+#include <spotify_client.h>
 
 #include <QCheckBox>
 #include <QColor>
@@ -72,6 +73,8 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     credentialsValueLabel = new QLabel(this);
     redirectUriValueLabel = new QLabel(this);
     rateLimitValueLabel = new QLabel(this);
+    currentPollingIntervalLabel = new QLabel(this);
+    timeTillNextPollLabel = new QLabel(this);
     helpTextLabel = new QLabel(this);
     helpTextLabel->setWordWrap(true);
 
@@ -79,6 +82,8 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     spotifyLayout->addWidget(createRow("Credentials", credentialsValueLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("Redirect URI", redirectUriValueLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("API rate limit", rateLimitValueLabel, spotifyTab));
+    spotifyLayout->addWidget(createRow("Current polling interval", currentPollingIntervalLabel, spotifyTab));
+    spotifyLayout->addWidget(createRow("Time till next poll", timeTillNextPollLabel, spotifyTab));
     spotifyLayout->addWidget(helpTextLabel);
 
     connectButton = new QPushButton(this);
@@ -232,6 +237,14 @@ void SettingsDialog::setRedirectUri(const QString &redirectUri) {
 void SettingsDialog::setRateLimitStatusText(const QString &text) {
     rateLimitStatusText = text;
     rateLimitValueLabel->setText(text);
+}
+
+void SettingsDialog::setCurrentPollingIntervalText(const QString &text) {
+    currentPollingIntervalLabel->setText(text);
+}
+
+void SettingsDialog::setTimeTillNextPollText(const QString &text) {
+    timeTillNextPollLabel->setText(text);
 }
 
 #ifdef _WIN32
@@ -393,6 +406,9 @@ void SettingsDialog::refreshUi() {
     credentialsValueLabel->setText(credentialsConfigured ? "Configured" : "Missing");
     connectionValueLabel->setText(authenticated ? "Connected" : "Not connected");
     rateLimitValueLabel->setText(rateLimitStatusText);
+    currentPollingIntervalLabel->setText(currentPollingIntervalText);
+    timeTillNextPollLabel->setText(timeTillNextPollText);
+
 
     if (!credentialsConfigured) {
         connectButton->setEnabled(false);

@@ -41,7 +41,7 @@ The project uses a `.env` file to manage API credentials at build time. This fil
     # .env
     SPOTIFY_CLIENT_ID="YOUR_CLIENT_ID_HERE"
     SPOTIFY_CLIENT_SECRET="YOUR_CLIENT_SECRET_HERE"
-    APP_POLL_INTERVAL_MS=2000
+    POLL_INTERVAL_MS=2000
     APP_REDIRECT_PORT=8888
     ```
 

@@ -80,7 +80,11 @@ function(generate_config_header env_file output_header)
 namespace AppConfig {
     const QString SPOTIFY_CLIENT_ID = "@SPOTIFY_CLIENT_ID@";
     const QString SPOTIFY_CLIENT_SECRET = "@SPOTIFY_CLIENT_SECRET@";
-    constexpr int POLL_INTERVAL_MS = @APP_POLL_INTERVAL_MS@;
+    constexpr int POLL_INTERVAL_MS = @POLL_INTERVAL_MS@;
+    constexpr int PAUSED_POLL_INTERVAL_MS = @PAUSED_POLL_INTERVAL_MS@;
+    constexpr int NO_DEVICE_POLL_INTERVAL_STARTING_MS = @NO_DEVICE_POLL_INTERVAL_STARTING_MS@;
+    constexpr int NO_DEVICE_POLL_INTERVAL_INCREMENT_MS = @NO_DEVICE_POLL_INTERVAL_INCREMENT_MS@;
+    constexpr int NO_DEVICE_POLL_INTERVAL_MAX_MS = @NO_DEVICE_POLL_INTERVAL_MAX_MS@;
     constexpr int REDIRECT_PORT = @APP_REDIRECT_PORT@;
 }
 

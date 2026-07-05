@@ -24,6 +24,8 @@ public:
     void setAuthenticated(bool authenticated);
     void setRedirectUri(const QString &redirectUri);
     void setRateLimitStatusText(const QString &text);
+    void setCurrentPollingIntervalText(const QString &text);
+    void setTimeTillNextPollText(const QString &text);
     #ifdef _WIN32
     void setAudioDuckerSettings(const AudioDuckerSettings &settings);
     AudioDuckerSettings audioDuckerSettings() const;
@@ -57,6 +59,8 @@ private:
     QLabel *credentialsValueLabel;
     QLabel *redirectUriValueLabel;
     QLabel *rateLimitValueLabel;
+    QLabel *currentPollingIntervalLabel;
+    QLabel *timeTillNextPollLabel;
     QLabel *helpTextLabel;
     #ifdef _WIN32
     QLabel *audioDuckerStatusLabel;
@@ -98,6 +102,8 @@ private:
     bool credentialsConfigured = false;
     bool authenticated = false;
     QString rateLimitStatusText = "Not rate limited";
+    QString currentPollingIntervalText = "N/A";
+    QString timeTillNextPollText = "N/A";
 };
 
 #endif // SETTINGS_DIALOG_H

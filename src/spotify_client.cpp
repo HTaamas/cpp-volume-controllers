@@ -26,7 +26,7 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNe
 
     pollTimer = new QTimer(this);
     connect(pollTimer, &QTimer::timeout, this, &SpotifyClient::pollPlayback);
-    pollTimer->start(getPollIntervalMs());
+    updatePollTimerInterval();
 
     rateLimitTimer = new QTimer(this);
     rateLimitTimer->setSingleShot(true);
@@ -34,11 +34,20 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNe
         rateLimited = false;
         rateLimitRetryAfterMs = 0;
         emitRateLimitState(0);
-        if (!pollTimer->isActive()) {
-            pollTimer->start(getPollIntervalMs());
-        }
+        updatePollTimerInterval();
         pollPlayback();
     });
+}
+
+void SpotifyClient::updatePollTimerInterval() {
+    if (!pollTimer || rateLimited) {
+        return;
+    }
+
+    pollTimer->setInterval(getPollIntervalMs());
+    if (!pollTimer->isActive()) {
+        pollTimer->start();
+    }
 }
 
 int SpotifyClient::getPollIntervalMs() {
@@ -54,6 +63,9 @@ int SpotifyClient::getPollIntervalMs() {
     } else if (!lastIsPlaying) {
         return AppConfig::PAUSED_POLL_INTERVAL_MS;
     } else {
+        if (localNoDevicePollIntervalMs > AppConfig::NO_DEVICE_POLL_INTERVAL_STARTING_MS) {
+            localNoDevicePollIntervalMs = AppConfig::NO_DEVICE_POLL_INTERVAL_STARTING_MS;
+        }
         return AppConfig::POLL_INTERVAL_MS;
     }
 }
@@ -241,6 +253,7 @@ void SpotifyClient::handleTokenResponse(QNetworkReply *reply) {
         refreshToken = doc.object()["refresh_token"].toString();
         saveTokens();
         emit authComplete();
+        updatePollTimerInterval();
     } else {
         qDebug() << "Token Error:" << reply->errorString();
     }
@@ -334,6 +347,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         QByteArray data = reply->readAll();
         if (data.isEmpty()) {
             setVolumeControlSupported(false);
+            lastIsPlaying = false;
             emitPlaybackState();
             reply->deleteLater();
             return; // 204 No Content / no active playback payload
@@ -395,6 +409,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
 
         currentVolume = effectiveVolume;
         emitPlaybackState();
+        updatePollTimerInterval();
 
         if (trackId != lastTrackId) {
             lastTrackId = trackId;
@@ -445,6 +460,7 @@ void SpotifyClient::refreshAccessToken() {
             QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
             accessToken = doc.object()["access_token"].toString();
             saveTokens();
+            updatePollTimerInterval();
         }
         reply->deleteLater();
     });

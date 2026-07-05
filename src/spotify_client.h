@@ -51,6 +51,7 @@ private slots:
 private:
     QString redirectUri() const;
     QNetworkRequest authorizedRequest(const QUrl &url) const;
+    void updatePollTimerInterval();
     void exchangeAuthorizationCode(const QString &code);
     void postTokenRequest(const QUrlQuery &body, const std::function<void(QNetworkReply *)> &handler);
     void setVolumeControlSupported(bool supported);

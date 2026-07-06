@@ -1,6 +1,7 @@
 #include "volume_handler.h"
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QTimer>
 
 #ifdef _WIN32
 HHOOK VolumeHandler::hHook = nullptr;
@@ -30,9 +31,57 @@ VolumeHandler::~VolumeHandler() {
 LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam) {
     const bool isShift = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
     const bool isCtrl = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-    static QElapsedTimer nextTrackTimer;
-    static QElapsedTimer prevTrackTimer;
     const int doubleTapTimeout = 400;
+
+    struct ModifierTapState {
+        QElapsedTimer timer;
+        bool pending = false;
+        quint64 generation = 0;
+    };
+
+    static ModifierTapState nextTrackTapState;
+    static ModifierTapState prevTrackTapState;
+
+    auto handleModifierTap = [&](ModifierTapState &state, const auto &doubleTapAction) {
+        if (!instance) {
+            return;
+        }
+
+        if (state.pending && state.timer.isValid() && state.timer.elapsed() > doubleTapTimeout) {
+            state.pending = false;
+            ++state.generation;
+        }
+
+        if (!state.pending) {
+            state.pending = true;
+            state.timer.start();
+            const quint64 generation = ++state.generation;
+
+            const int timeoutMs = doubleTapTimeout;
+            QTimer::singleShot(timeoutMs, instance, [generation, timeoutMs, &state]() {
+                if (!instance) {
+                    return;
+                }
+
+                if (!state.pending || state.generation != generation) {
+                    return;
+                }
+
+                if (state.timer.isValid() && state.timer.elapsed() >= timeoutMs) {
+                    state.pending = false;
+                    emit instance->toggleMusic();
+                }
+            });
+
+            return;
+        }
+
+        if (state.timer.isValid() && state.timer.elapsed() <= doubleTapTimeout) {
+            state.pending = false;
+            ++state.generation;
+            doubleTapAction();
+        }
+    };
 
     if (nCode == HC_ACTION) {
         KBDLLHOOKSTRUCT *pKey = reinterpret_cast<KBDLLHOOKSTRUCT *>(lParam);
@@ -56,19 +105,13 @@ LRESULT CALLBACK VolumeHandler::LowLevelKeyboardProc(int nCode, WPARAM wParam, L
                     if (isShift && isCtrl) {
                         return 0;
                     } else if (isShift) {
-                        if (!nextTrackTimer.isValid() || nextTrackTimer.elapsed() > doubleTapTimeout) {
-                            nextTrackTimer.start();
-                        } else {
-                            nextTrackTimer.invalidate();
+                        handleModifierTap(nextTrackTapState, [&]() {
                             emit instance->nextTrack();
-                        }
+                        });
                     } else if (isCtrl) {
-                        if (!prevTrackTimer.isValid() || prevTrackTimer.elapsed() > doubleTapTimeout) {
-                            prevTrackTimer.start();
-                        } else {
-                            prevTrackTimer.invalidate();
+                        handleModifierTap(prevTrackTapState, [&]() {
                             emit instance->prevTrack();
-                        }
+                        });
                     } else {
                         emit instance->toggleMusic();
                     }

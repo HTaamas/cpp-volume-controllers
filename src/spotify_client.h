@@ -79,6 +79,7 @@ private:
     QTimer *rateLimitTimer = nullptr;
     bool rateLimited = false;
     int rateLimitRetryAfterMs = 0;
+    QJsonObject device;
 
     QTcpServer *authServer = nullptr;
     const int redirectPort = AppConfig::REDIRECT_PORT;

@@ -9,7 +9,7 @@ namespace AppConfig {
     const QString SPOTIFY_CLIENT_ID = "";
     const QString SPOTIFY_CLIENT_SECRET = "";
     constexpr int POLL_INTERVAL_MS = 2000;
-    constexpr int PAUSED_POLL_INTERVAL_MS = 5000;
+    constexpr int PAUSED_POLL_INTERVAL_MS = 10000;
     constexpr int NO_DEVICE_POLL_INTERVAL_STARTING_MS = 2000;
     constexpr int NO_DEVICE_POLL_INTERVAL_INCREMENT_MS = 10000;
     constexpr int NO_DEVICE_POLL_INTERVAL_MAX_MS = 60000;

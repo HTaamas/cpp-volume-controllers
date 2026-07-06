@@ -34,7 +34,6 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNe
         rateLimited = false;
         rateLimitRetryAfterMs = 0;
         emitRateLimitState(0);
-        updatePollTimerInterval();
         pollPlayback();
     });
 }
@@ -55,7 +54,7 @@ int SpotifyClient::getPollIntervalMs() {
         return rateLimitRetryAfterMs;
     } else if (!hasCredentialsConfigured()) {
         return AppConfig::POLL_INTERVAL_MS;
-    } else if (!hasStoredSession()) {
+    } else if (device.isEmpty()) {
         if (localNoDevicePollIntervalMs < AppConfig::NO_DEVICE_POLL_INTERVAL_MAX_MS) {
             localNoDevicePollIntervalMs += AppConfig::NO_DEVICE_POLL_INTERVAL_INCREMENT_MS;
         }
@@ -349,6 +348,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
             setVolumeControlSupported(false);
             lastIsPlaying = false;
             emitPlaybackState();
+            updatePollTimerInterval();
             reply->deleteLater();
             return; // 204 No Content / no active playback payload
         }
@@ -362,7 +362,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
 
         QJsonObject obj = doc.object();
         QJsonObject item = obj["item"].toObject();
-        QJsonObject device = obj["device"].toObject();
+        device = obj["device"].toObject();
         if (item.isEmpty() || device.isEmpty()) {
             setVolumeControlSupported(false);
             lastIsPlaying = obj["is_playing"].toBool();

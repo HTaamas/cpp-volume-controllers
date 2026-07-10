@@ -364,7 +364,7 @@ void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
         QJsonObject item = obj["item"].toObject();
         device = obj["device"].toObject();
         if (item.isEmpty() || device.isEmpty()) {
-            setVolumeControlSupported(false);
+            setVolumeControlSupported(device.value("supports_volume").toBool(true));
             lastIsPlaying = obj["is_playing"].toBool();
             lastProgressMs = obj["progress_ms"].toInt(lastProgressMs);
             emitPlaybackState();

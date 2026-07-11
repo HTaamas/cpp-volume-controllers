@@ -66,7 +66,13 @@ function(generate_config_header env_file output_header)
                 
                 # Set as local CMake variable
                 set(${key} "${value}")
-                message(STATUS "ENV: ${key}=${value}")
+
+                # Optionally, print the variable for debugging
+                if(key STREQUAL "SPOTIFY_CLIENT_ID" OR key STREQUAL "SPOTIFY_CLIENT_SECRET")
+                    message(STATUS "ENV: ${key}=<hidden>")
+                else()
+                    message(STATUS "ENV: ${key}=${value}")
+                endif()
             endif()
         endif()
     endforeach()

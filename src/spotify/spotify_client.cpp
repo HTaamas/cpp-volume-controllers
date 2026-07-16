@@ -61,14 +61,6 @@ SpotifyClient::SpotifyClient(QObject *parent)
     : QObject(parent), network(new QNetworkAccessManager(this)) {
     deviceId = AppSettings::loadOrCreateDeviceId();
 
-    rateLimitTimer = new QTimer(this);
-    rateLimitTimer->setSingleShot(true);
-    connect(rateLimitTimer, &QTimer::timeout, this, [this]() {
-        rateLimited = false;
-        rateLimitRetryAfterMs = 0;
-        emitRateLimitState(0);
-    });
-
     devicePollTimer = new QTimer(this);
     connect(devicePollTimer, &QTimer::timeout, this, &SpotifyClient::pollDeviceToken);
 
@@ -650,10 +642,6 @@ void SpotifyClient::fetchTrackDetails(const QString &trackId) {
             refreshAccessToken();
             return;
         }
-        if (status == 429) {
-            enterRateLimitCooldown(parseRetryAfterMs(reply));
-            return;
-        }
         if (status != 200) {
             logMessage(QString("[track] metadata lookup for %1 failed (HTTP %2)").arg(trackId).arg(status));
             return;
@@ -722,8 +710,6 @@ void SpotifyClient::fetchTrackDetails(const QString &trackId) {
 // ---------------------------------------------------------------------------
 
 bool SpotifyClient::setVolume(int volume) {
-    // User-initiated control must never be blocked by a metadata rate-limit
-    // cooldown, so it is intentionally not gated on isRateLimited().
     if (!connectStateRegistered || activeDeviceId.isEmpty() || activeDeviceId == deviceId ||
         spotConnId.isEmpty() || !volumeControlSupported) {
         return false;
@@ -746,8 +732,6 @@ bool SpotifyClient::setVolume(int volume) {
         reply->deleteLater();
         if (status == 401) {
             refreshAccessToken();
-        } else if (status == 429) {
-            enterRateLimitCooldown(parseRetryAfterMs(reply));
         }
     });
     return true;
@@ -766,7 +750,6 @@ void SpotifyClient::prevTrack() {
 }
 
 void SpotifyClient::sendConnectCommand(const QString &endpoint) {
-    // User-initiated control is not gated on a metadata rate-limit cooldown.
     if (!connectStateRegistered || activeDeviceId.isEmpty() || activeDeviceId == deviceId ||
         spotConnId.isEmpty()) {
         return;
@@ -785,8 +768,6 @@ void SpotifyClient::sendConnectCommand(const QString &endpoint) {
         reply->deleteLater();
         if (status == 401) {
             refreshAccessToken();
-        } else if (status == 429) {
-            enterRateLimitCooldown(parseRetryAfterMs(reply));
         } else if (status / 100 != 2) {
             logMessage(QString("[connect-state] command '%1' failed (HTTP %2)").arg(endpoint).arg(status));
         }
@@ -854,45 +835,3 @@ void SpotifyClient::logMessage(const QString &msg) {
     emit debugLog(msg);
 }
 
-// ---------------------------------------------------------------------------
-// Rate limiting
-// ---------------------------------------------------------------------------
-
-bool SpotifyClient::isRateLimited() const {
-    return rateLimited;
-}
-
-int SpotifyClient::rateLimitRemainingMs() const {
-    if (!rateLimited || !rateLimitTimer->isActive()) {
-        return 0;
-    }
-    return qMax(0, rateLimitTimer->remainingTime());
-}
-
-void SpotifyClient::emitRateLimitState(int retryAfterMs) {
-    emit rateLimitChanged(retryAfterMs);
-}
-
-int SpotifyClient::parseRetryAfterMs(QNetworkReply *reply) const {
-    const QByteArray retryAfterValue = reply->rawHeader("Retry-After");
-    if (retryAfterValue.isEmpty()) {
-        return 60000;
-    }
-    bool ok = false;
-    const int seconds = QString::fromLatin1(retryAfterValue).trimmed().toInt(&ok);
-    if (ok && seconds >= 0) {
-        return seconds * 1000;
-    }
-    return 60000;
-}
-
-void SpotifyClient::enterRateLimitCooldown(int retryAfterMs) {
-    const int normalized = qMax(1000, retryAfterMs);
-    if (rateLimited && rateLimitTimer->isActive() && rateLimitTimer->remainingTime() > normalized) {
-        return;
-    }
-    rateLimited = true;
-    rateLimitRetryAfterMs = normalized;
-    rateLimitTimer->start(normalized);
-    emitRateLimitState(normalized);
-}

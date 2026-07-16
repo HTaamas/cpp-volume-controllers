@@ -21,8 +21,6 @@ class OSDWindow : public QWidget {
 public:
     explicit OSDWindow(QWidget *parent = nullptr);
     void showVolume(int volume, const QString &track, const QString &artist, const QString &albumArtUrl = "", int progressMs = 0, int durationMs = 0, bool isPlaying = false, bool volumeControlSupported = true);
-    void showRateLimitMessage(int retryAfterMs);
-    void updateRateLimitMessage(int retryAfterMs);
     void syncProgress(int progressMs, bool isPlaying, bool volumeControlSupported);
     void applyOverlaySettings(const OverlaySettings &settings);
 

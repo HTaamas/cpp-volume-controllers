@@ -19,9 +19,6 @@ public:
     explicit SettingsDialog(QWidget *parent = nullptr);
 
     void setAuthenticated(bool authenticated);
-    void setRateLimitStatusText(const QString &text);
-    void setCurrentPollingIntervalText(const QString &text);
-    void setTimeTillNextPollText(const QString &text);
     void appendLog(const QString &text);
     void setOverlaySettings(const OverlaySettings &settings);
     OverlaySettings overlaySettings() const;
@@ -44,9 +41,6 @@ private:
     void updateColorPreview(QLineEdit *edit, QLabel *preview);
 
     QLabel *connectionValueLabel;
-    QLabel *rateLimitValueLabel;
-    QLabel *currentPollingIntervalLabel;
-    QLabel *timeTillNextPollLabel;
     QLabel *helpTextLabel;
     QPushButton *connectButton;
     QTabWidget *tabs;
@@ -72,9 +66,6 @@ private:
     QLineEdit *mainKeyEdit;
 
     bool authenticated = false;
-    QString rateLimitStatusText = "Not rate limited";
-    QString currentPollingIntervalText = "N/A";
-    QString timeTillNextPollText = "N/A";
 
     QPlainTextEdit *logViewer = nullptr;
 };

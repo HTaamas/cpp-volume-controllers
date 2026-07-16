@@ -70,16 +70,10 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     spotifyLayout->addWidget(spotifyTitle);
 
     connectionValueLabel = new QLabel(this);
-    rateLimitValueLabel = new QLabel(this);
-    currentPollingIntervalLabel = new QLabel(this);
-    timeTillNextPollLabel = new QLabel(this);
     helpTextLabel = new QLabel(this);
     helpTextLabel->setWordWrap(true);
 
     spotifyLayout->addWidget(createRow("Status", connectionValueLabel, spotifyTab));
-    spotifyLayout->addWidget(createRow("API rate limit", rateLimitValueLabel, spotifyTab));
-    spotifyLayout->addWidget(createRow("Current polling interval", currentPollingIntervalLabel, spotifyTab));
-    spotifyLayout->addWidget(createRow("Time till next poll", timeTillNextPollLabel, spotifyTab));
     spotifyLayout->addWidget(helpTextLabel);
 
     connectButton = new QPushButton(this);
@@ -178,19 +172,6 @@ void SettingsDialog::setAuthenticated(bool isAuthenticated) {
     refreshUi();
 }
 
-void SettingsDialog::setRateLimitStatusText(const QString &text) {
-    rateLimitStatusText = text;
-    rateLimitValueLabel->setText(text);
-}
-
-void SettingsDialog::setCurrentPollingIntervalText(const QString &text) {
-    currentPollingIntervalLabel->setText(text);
-}
-
-void SettingsDialog::setTimeTillNextPollText(const QString &text) {
-    timeTillNextPollLabel->setText(text);
-}
-
 void SettingsDialog::appendLog(const QString &text) {
     if (logViewer) {
         logViewer->appendPlainText(text);
@@ -286,9 +267,6 @@ void SettingsDialog::updateColorPreview(QLineEdit *edit, QLabel *preview) {
 
 void SettingsDialog::refreshUi() {
     connectionValueLabel->setText(authenticated ? "Connected" : "Not connected");
-    rateLimitValueLabel->setText(rateLimitStatusText);
-    currentPollingIntervalLabel->setText(currentPollingIntervalText);
-    timeTillNextPollLabel->setText(timeTillNextPollText);
 
     connectButton->setEnabled(true);
     connectButton->setText(authenticated ? "Reconnect Spotify" : "Connect Spotify");

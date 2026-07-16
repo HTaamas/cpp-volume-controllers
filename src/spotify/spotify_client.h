@@ -44,13 +44,9 @@ public:
     // Re-establish the session silently using a stored refresh token, if any.
     void resumeSession();
 
-    bool isRateLimited() const;
-    int rateLimitRemainingMs() const;
-
 signals:
     void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported);
     void stateSynced(int volume, int progressMs, bool isPlaying, bool volumeControlSupported);
-    void rateLimitChanged(int retryAfterMs);
     void debugLog(const QString &logLine);
     void authComplete();
     // Fired when the device flow needs the user to authorize: url is the
@@ -86,9 +82,6 @@ private:
     // --- helpers ---
     QNetworkRequest spclientRequest(const QUrl &url) const; // Authorization + Client-Token + Connection-Id
     void logMessage(const QString &msg);
-    void emitRateLimitState(int retryAfterMs);
-    void enterRateLimitCooldown(int retryAfterMs);
-    int parseRetryAfterMs(QNetworkReply *reply) const;
     void setVolumeControlSupported(bool supported);
     static QByteArray gunzip(const QByteArray &data);
 
@@ -128,11 +121,6 @@ private:
     bool lastIsPlaying = false;
     int pendingVolume = -1;
     QElapsedTimer pendingVolumeTimer;
-
-    // rate limiting
-    QTimer *rateLimitTimer = nullptr;
-    bool rateLimited = false;
-    int rateLimitRetryAfterMs = 0;
 };
 
 #endif // SPOTIFY_CLIENT_H

@@ -24,16 +24,6 @@ void configureMacApplicationBehavior();
 #endif
 
 namespace {
-QString formatDurationText(int ms) {
-    const int totalSeconds = qMax(0, ms) / 1000;
-    const int minutes = totalSeconds / 60;
-    const int seconds = totalSeconds % 60;
-    if (minutes > 0) {
-        return QString("%1m %2s").arg(minutes).arg(seconds);
-    }
-    return QString("%1s").arg(seconds);
-}
-
 QString bundledAppIconPath() {
 #ifdef __APPLE__
     return QDir(QCoreApplication::applicationDirPath()).filePath("../Resources/app_icon.png");
@@ -178,37 +168,6 @@ int main(int argc, char *argv[]) {
         return estimated;
     };
 
-    auto updateDynamicSettingsInfo = [&]() {
-        if (!settingsDialog.isVisible()) {
-            return;
-        }
-        settingsDialog.setCurrentPollingIntervalText("WebSocket (Real-time)");
-        settingsDialog.setTimeTillNextPollText("N/A (Push-based)");
-    };
-
-    auto updateRateLimitText = [&](int retryAfterMs) {
-        if (retryAfterMs > 0) {
-            const QString text = QString("Rate limited for %1").arg(formatDurationText(retryAfterMs));
-            settingsDialog.setRateLimitStatusText(text);
-        } else {
-            settingsDialog.setRateLimitStatusText("Not rate limited");
-        }
-    };
-
-    QTimer *rateLimitCountdownTimer = new QTimer(&app);
-    rateLimitCountdownTimer->setInterval(1000);
-    QObject::connect(rateLimitCountdownTimer, &QTimer::timeout, [&]() {
-        const int remainingMs = spotify.rateLimitRemainingMs();
-        if (remainingMs <= 0 || !spotify.isRateLimited()) {
-            rateLimitCountdownTimer->stop();
-            updateRateLimitText(0);
-            return;
-        }
-
-        updateRateLimitText(remainingMs);
-        osd.updateRateLimitMessage(remainingMs);
-    });
-
     QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported) {
         currentVolume = volume;
         currentTrack = track;
@@ -224,22 +183,7 @@ int main(int argc, char *argv[]) {
 
     QObject::connect(&spotify, &SpotifyClient::debugLog, &settingsDialog, &SettingsDialog::appendLog);
 
-    QObject::connect(&spotify, &SpotifyClient::rateLimitChanged, [&](int retryAfterMs) {
-        updateRateLimitText(retryAfterMs);
-
-        if (retryAfterMs > 0) {
-            osd.showRateLimitMessage(retryAfterMs);
-            osd.updateRateLimitMessage(retryAfterMs);
-            if (!rateLimitCountdownTimer->isActive()) {
-                rateLimitCountdownTimer->start();
-            }
-        } else {
-            rateLimitCountdownTimer->stop();
-        }
-    });
-
     QObject::connect(&tray, &TrayManager::settingsRequested, [&]() {
-        updateDynamicSettingsInfo();
         settingsDialog.show();
         settingsDialog.raise();
         settingsDialog.activateWindow();
@@ -315,13 +259,6 @@ int main(int argc, char *argv[]) {
     QTimer::singleShot(1000, [&spotify]() {
         spotify.resumeSession();
     });
-
-    QTimer *settingsUpdateTimer = new QTimer(&app);
-    settingsUpdateTimer->setInterval(1000);
-    QObject::connect(settingsUpdateTimer, &QTimer::timeout, [&]() {
-        updateDynamicSettingsInfo();
-    });
-    settingsUpdateTimer->start();
 
     try {
         return app.exec();

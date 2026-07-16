@@ -13,48 +13,17 @@ A lightweight, cross-platform Spotify controller with a custom volume OSD and au
 *   **Cross-Platform**: A single codebase supporting Windows, macOS, and Linux (X11).
 *   **No-Focus Overlay**: The OSD appears over your active window (including full-screen games) without interrupting your workflow.
 
-## Setup & Configuration
+## Setup
 
-This application uses the Spotify Web API. You must register your own "app" with Spotify to get the necessary credentials.
+No Spotify API keys, developer app, or `.env` file are required. SpotifyVol authenticates using Spotify's OAuth2 **device flow** with the built-in Spotify desktop client id.
 
-### 1. Create a Spotify App
+On first launch — or any time from **Settings → Connect Spotify** — your browser opens a Spotify authorization page. Approve it and the app connects. Your login is remembered afterwards (a refresh token is stored locally in your OS settings store), so you won't need to re-authorize on later launches.
 
-1.  Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard/applications) and log in.
-2.  Click `CREATE AN APP`.
-3.  Give it a name (e.g., "My Volume Control") and a description.
-4.  Once created, you will see your **Client ID** and **Client Secret**. You will need these in the next step.
-5.  Go to `Edit Settings`. In the `Redirect URIs` field, add `http://localhost:8888/callback`. This must match the port in your `.env` file.
-6.  Click `Save`.
-
-### 2. Configure Credentials
-
-The project uses a `.env` file to manage API credentials at build time. This file is not tracked by git.
-
-1.  In the project's root directory, copy the example file:
-    ```bash
-    cp .env.example .env
-    ```
-2.  Open the new `.env` file in a text editor.
-3.  Paste your Client ID and Client Secret from the Spotify Developer Dashboard.
-
-    ```dotenv
-    # .env
-    SPOTIFY_CLIENT_ID="YOUR_CLIENT_ID_HERE"
-    SPOTIFY_CLIENT_SECRET="YOUR_CLIENT_SECRET_HERE"
-    
-    POLL_INTERVAL_MS=2000
-    PAUSED_POLL_INTERVAL_MS = 5000
-    NO_DEVICE_POLL_INTERVAL_STARTING_MS = 10000
-    NO_DEVICE_POLL_INTERVAL_INCREMENT_MS = 10000
-    NO_DEVICE_POLL_INTERVAL_MAX_MS = 60000
-    APP_REDIRECT_PORT=8888
-    ```
-
-The app will now be compiled with your credentials. If you change them, you must rebuild the project.
+The app never handles your password or any cookie. Once connected it talks only to Spotify's realtime Connect backend (the same protocol the official clients use), streaming playback state over a WebSocket rather than polling the public Web API — so it isn't subject to Web-API rate limits.
 
 ## Building from Source
 
-This project is built using CMake. Ensure you have Qt 6 (with Widgets, Network, Gui modules), CMake, and a C++ compiler installed.
+This project is built using CMake. You need Qt 6 (Widgets, Network, Gui, WebSockets), Protobuf (`protoc` plus libprotobuf), zlib, CMake, a C++17 compiler, and — on Linux — X11 development headers.
 
 ### Windows (MinGW)
 
@@ -93,7 +62,7 @@ The final bundle will be at `build/SpotifyVol.app`. On first run, macOS will pro
 
 ### Linux (X11)
 
-Ensure you have Qt 6 development packages (`Widgets`, `Gui`, `Network`) and X11 development headers (`libx11-dev`) installed.
+Ensure you have Qt 6 development packages (`Widgets`, `Gui`, `Network`, `WebSockets`), Protobuf (`protobuf-compiler`, `libprotobuf-dev`), zlib (`zlib1g-dev`), and X11 development headers (`libx11-dev`) installed.
 
 ```bash
 # Configure and build

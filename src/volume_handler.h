@@ -14,6 +14,7 @@
 
 #ifdef __APPLE__
 #include <ApplicationServices/ApplicationServices.h>
+#include <IOKit/hid/IOHIDManager.h>
 #endif
 
 class QSocketNotifier;
@@ -40,8 +41,11 @@ private:
 #endif
 #ifdef __APPLE__
     static CGEventRef MacEventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon);
+    static void MacHIDInputCallback(void *context, IOReturn result, void *sender, IOHIDValueRef value);
+    void setupCapsLockMonitor();
     CFMachPortRef eventTap = nullptr;
     CFRunLoopSourceRef runLoopSource = nullptr;
+    IOHIDManagerRef hidManager = nullptr;
 #endif
 #ifdef __linux__
     void processLinuxX11Events();

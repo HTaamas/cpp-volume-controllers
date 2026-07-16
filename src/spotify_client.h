@@ -10,79 +10,129 @@
 #include <QJsonArray>
 #include <QUrlQuery>
 #include <QDesktopServices>
-#include <QTcpServer>
-#include <QTcpSocket>
 #include <QElapsedTimer>
-#include <functional>
-#include <app_config.h>
 
+class QWebSocket;
+
+// SpotifyClient talks to Spotify the way the librespot/go-librespot desktop
+// clients do, using only the Web backend (no audio streaming):
+//
+//   OAuth2 device flow  -> access token + refresh token
+//   clienttoken.spotify -> client token
+//   apresolve           -> dealer + spclient hosts
+//   dealer WebSocket     -> realtime Spotify Connect cluster pushes
+//   connect-state        -> register as a passive device, read/observe state,
+//                           and remote-control volume / transport
+//
+// Playback state, position and volume arrive as realtime pushes over the dealer
+// (no polling, no Web-API rate limiting). Track display metadata is fetched once
+// per song from the Web API.
 class SpotifyClient : public QObject {
     Q_OBJECT
 public:
     explicit SpotifyClient(QObject *parent = nullptr);
-    void startAuth();
+
+    // Volume is expressed 0-100 at this interface; converted to Connect's
+    // 0-65535 range internally. Returns false if the command can't be sent.
     bool setVolume(int volume);
     void togglePlayPause();
     void nextTrack();
     void prevTrack();
-    void pollPlayback();
-    int getPollIntervalMs();
-    bool hasCredentialsConfigured() const;
-    bool hasStoredSession() const;
-    QString authRedirectUri() const;
+
+    // Begin an interactive OAuth2 device-flow authorization (opens a browser).
+    void startAuthorization();
+    // Re-establish the session silently using a stored refresh token, if any.
+    void resumeSession();
+
     bool isRateLimited() const;
     int rateLimitRemainingMs() const;
-
-
-    QTimer *pollTimer = nullptr;
 
 signals:
     void trackChanged(int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported);
     void stateSynced(int volume, int progressMs, bool isPlaying, bool volumeControlSupported);
     void rateLimitChanged(int retryAfterMs);
+    void debugLog(const QString &logLine);
     void authComplete();
+    // Fired when the device flow needs the user to authorize: url is the
+    // verification URL (also opened in the browser), code is the user code.
+    void authorizationPending(const QString &url, const QString &code);
 
 private slots:
-    void handleTokenResponse(QNetworkReply *reply);
-    void handlePlaybackResponse(QNetworkReply *reply);
-    void handleVolumeResponse(QNetworkReply *reply);
-    void onNewConnection();
+    void onWebSocketConnected();
+    void onWebSocketDisconnected();
+    void onWebSocketTextMessageReceived(const QString &message);
+    void sendWebSocketPing();
 
 private:
-    QString redirectUri() const;
-    QNetworkRequest authorizedRequest(const QUrl &url) const;
-    void updatePollTimerInterval();
-    void exchangeAuthorizationCode(const QString &code);
-    void postTokenRequest(const QUrlQuery &body, const std::function<void(QNetworkReply *)> &handler);
-    void setVolumeControlSupported(bool supported);
-    void emitPlaybackState();
+    // --- OAuth2 device flow ---
+    void requestDeviceCode();
+    void pollDeviceToken();
+    void applyTokenResponse(const QJsonObject &obj);
+    void refreshAccessToken();
+    bool accessTokenExpired() const;
+
+    // --- session bring-up ---
+    void continueSessionBringUp();          // client token -> apresolve -> dealer
+    void fetchClientToken();
+    void resolveEndpoints();
+    void connectWebSocket();
+
+    // --- connect-state ---
+    void registerConnectState();
+    void handleClusterBytes(const QByteArray &protoBytes, bool isUpdate);
+    void fetchTrackDetails(const QString &trackId);
+    void sendConnectCommand(const QString &endpoint);
+
+    // --- helpers ---
+    QNetworkRequest spclientRequest(const QUrl &url) const; // Authorization + Client-Token + Connection-Id
+    void logMessage(const QString &msg);
     void emitRateLimitState(int retryAfterMs);
     void enterRateLimitCooldown(int retryAfterMs);
     int parseRetryAfterMs(QNetworkReply *reply) const;
-    void refreshAccessToken();
-    void saveTokens();
-    void loadTokens();
+    void setVolumeControlSupported(bool supported);
+    static QByteArray gunzip(const QByteArray &data);
 
-    int localNoDevicePollIntervalMs = AppConfig::NO_DEVICE_POLL_INTERVAL_STARTING_MS;
-    QNetworkAccessManager *network;
-    const QString clientId = AppConfig::SPOTIFY_CLIENT_ID;
-    const QString clientSecret = AppConfig::SPOTIFY_CLIENT_SECRET;
+    QNetworkAccessManager *network = nullptr;
+
+    // identity / tokens
+    QString deviceId;
     QString accessToken;
     QString refreshToken;
+    qint64 accessTokenExpiryMs = 0;
+    QString clientToken;
+    qint64 clientTokenExpiryMs = 0;
+
+    // resolved endpoints
+    QString dealerHost = QStringLiteral("dealer.spotify.com");
+    QString spclientBaseUrl = QStringLiteral("https://gew4-spclient.spotify.com");
+    bool endpointsResolved = false;
+
+    // device flow
+    QString deviceCode;
+    QTimer *devicePollTimer = nullptr;
+    qint64 deviceFlowDeadlineMs = 0;
+
+    // connect-state / dealer
+    QWebSocket *webSocket = nullptr;
+    QTimer *pingTimer = nullptr;
+    QString spotConnId;
+    QString activeDeviceId;
+    bool connectStateRegistered = false;
+
+    // cached playback state (volume kept 0-100)
     QString lastTrackId;
     bool volumeControlSupported = true;
     int currentVolume = 50;
     int lastProgressMs = 0;
+    int lastDurationMs = 0;
     bool lastIsPlaying = false;
     int pendingVolume = -1;
     QElapsedTimer pendingVolumeTimer;
+
+    // rate limiting
     QTimer *rateLimitTimer = nullptr;
     bool rateLimited = false;
     int rateLimitRetryAfterMs = 0;
-    QJsonObject device;
-
-    QTcpServer *authServer = nullptr;
-    const int redirectPort = AppConfig::REDIRECT_PORT;
 };
 
 #endif // SPOTIFY_CLIENT_H

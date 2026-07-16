@@ -142,10 +142,6 @@ int main(int argc, char *argv[]) {
     VolumeHandler volHandler;
     SettingsDialog settingsDialog;
     AudioDucker audioDucker;
-
-    settingsDialog.setCredentialsConfigured(spotify.hasCredentialsConfigured());
-    settingsDialog.setAuthenticated(spotify.hasStoredSession());
-    settingsDialog.setRedirectUri(spotify.authRedirectUri());
     #ifdef _WIN32
     settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
     settingsDialog.setAudioDuckerSettings(audioDucker.settings());
@@ -193,13 +189,8 @@ int main(int argc, char *argv[]) {
         if (!settingsDialog.isVisible()) {
             return;
         }
-        const int pollInterval = spotify.getPollIntervalMs();
-        const QString pollText = QString("%1 ms").arg(pollInterval);
-        settingsDialog.setCurrentPollingIntervalText(pollText);
-
-        const int remainingMs = spotify.pollTimer->isActive() ? spotify.pollTimer->remainingTime() : spotify.pollTimer->interval();
-        const QString timeTillNextPollText = formatDurationText(remainingMs);
-        settingsDialog.setTimeTillNextPollText(timeTillNextPollText);
+        settingsDialog.setCurrentPollingIntervalText("WebSocket (Real-time)");
+        settingsDialog.setTimeTillNextPollText("N/A (Push-based)");
     };
 
     auto updateRateLimitText = [&](int retryAfterMs) {
@@ -238,9 +229,8 @@ int main(int argc, char *argv[]) {
         tray.updateTrackInfo(currentTrack, currentArtist);
     });
 
-    QObject::connect(&spotify, &SpotifyClient::authComplete, [&]() {
-        settingsDialog.setAuthenticated(true);
-    });
+
+    QObject::connect(&spotify, &SpotifyClient::debugLog, &settingsDialog, &SettingsDialog::appendLog);
 
     QObject::connect(&spotify, &SpotifyClient::rateLimitChanged, [&](int retryAfterMs) {
         updateRateLimitText(retryAfterMs);
@@ -268,7 +258,15 @@ int main(int argc, char *argv[]) {
     });
 
     QObject::connect(&settingsDialog, &SettingsDialog::connectSpotifyRequested, [&]() {
-        spotify.startAuth();
+        spotify.startAuthorization();
+    });
+
+    QObject::connect(&spotify, &SpotifyClient::authorizationPending, [&](const QString &url, const QString &code) {
+        settingsDialog.showAuthorizationPrompt(url, code);
+    });
+
+    QObject::connect(&spotify, &SpotifyClient::authComplete, [&]() {
+        settingsDialog.setAuthenticated(true);
     });
 
     #ifdef _WIN32
@@ -363,12 +361,8 @@ int main(int argc, char *argv[]) {
     });
     #endif
 
-    // Check if we need to auth
     QTimer::singleShot(1000, [&spotify]() {
-        spotify.pollPlayback();
-        // If we don't have a token, start auth flow
-        // In this simple rewrite, we might want to check the token state properly.
-        // spotify.startAuth();
+        spotify.resumeSession();
     });
 
     QTimer *settingsUpdateTimer = new QTimer(&app);

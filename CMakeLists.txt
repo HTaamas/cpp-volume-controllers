@@ -13,21 +13,44 @@ if(APPLE)
     set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 endif()
 
-# Include environment parsing
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-include(ParseEnv)
-
-# Generate config header from .env file
-set(ENV_FILE "${CMAKE_CURRENT_SOURCE_DIR}/.env")
-set(CONFIG_HEADER "${CMAKE_CURRENT_BINARY_DIR}/include/app_config.h")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ENV_FILE}")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
-generate_config_header("${ENV_FILE}" "${CONFIG_HEADER}")
-
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui WebSockets)
 if(UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)
 endif()
+
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(PC_PROTOBUF REQUIRED protobuf)
+find_package(ZLIB REQUIRED)
+set(PROTO_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/proto")
+set(PROTO_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto_gen")
+file(MAKE_DIRECTORY ${PROTO_BIN_DIR})
+file(GLOB_RECURSE PROTO_FILES "${PROTO_SRC_DIR}/*.proto")
+
+set(PROTO_SRCS)
+set(PROTO_HDRS)
+
+foreach(PROTO_FILE IN LISTS PROTO_FILES)
+    file(RELATIVE_PATH REL_PROTO_FILE ${PROTO_SRC_DIR} ${PROTO_FILE})
+    get_filename_component(REL_DIR ${REL_PROTO_FILE} DIRECTORY)
+    get_filename_component(BASENAME ${REL_PROTO_FILE} NAME_WE)
+    
+    set(GENERATED_CC "${PROTO_BIN_DIR}/${REL_DIR}/${BASENAME}.pb.cc")
+    set(GENERATED_H "${PROTO_BIN_DIR}/${REL_DIR}/${BASENAME}.pb.h")
+    
+    list(APPEND PROTO_SRCS ${GENERATED_CC})
+    list(APPEND PROTO_HDRS ${GENERATED_H})
+    
+    add_custom_command(
+        OUTPUT ${GENERATED_CC} ${GENERATED_H}
+        COMMAND protoc
+        ARGS --cpp_out=${PROTO_BIN_DIR} -I${PROTO_SRC_DIR} ${PROTO_FILE}
+        DEPENDS ${PROTO_FILE}
+        COMMENT "Compiling ${REL_PROTO_FILE}..."
+        VERBATIM
+    )
+endforeach()
+set_source_files_properties(${PROTO_SRCS} ${PROTO_HDRS} PROPERTIES GENERATED TRUE)
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -54,6 +77,7 @@ set(SOURCES
     src/implementation/app_settings.cpp
     src/implementation/settings_dialog.h
     src/implementation/settings_dialog.cpp
+    ${PROTO_SRCS}
 )
 
 if(WIN32)
@@ -71,21 +95,54 @@ if(APPLE)
     list(APPEND SOURCES src/volume_handler_mac.mm)
     list(APPEND SOURCES src/osd_window_mac.mm)
     list(APPEND SOURCES "${APP_ICON_ASSET}")
+
+    # Build a real .icns from the PNG so the bundle shows an icon in Finder, the
+    # Dock and the app switcher. (A 1024px square master gives the crispest icon.)
+    set(APP_ICNS_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.original.png")
+    if(NOT EXISTS "${APP_ICNS_SOURCE}")
+        set(APP_ICNS_SOURCE "${APP_ICON_ASSET}")
+    endif()
+    set(APP_ICNS "${CMAKE_CURRENT_BINARY_DIR}/app_icon.icns")
+    set(APP_ICONSET_DIR "${CMAKE_CURRENT_BINARY_DIR}/app_icon.iconset")
+    add_custom_command(
+        OUTPUT "${APP_ICNS}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${APP_ICONSET_DIR}"
+        COMMAND sips -z 16 16     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_16x16.png"
+        COMMAND sips -z 32 32     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_16x16@2x.png"
+        COMMAND sips -z 32 32     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_32x32.png"
+        COMMAND sips -z 64 64     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_32x32@2x.png"
+        COMMAND sips -z 128 128   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_128x128.png"
+        COMMAND sips -z 256 256   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_128x128@2x.png"
+        COMMAND sips -z 256 256   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_256x256.png"
+        COMMAND sips -z 512 512   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_256x256@2x.png"
+        COMMAND sips -z 512 512   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_512x512.png"
+        COMMAND sips -z 1024 1024 "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_512x512@2x.png"
+        COMMAND iconutil -c icns "${APP_ICONSET_DIR}" -o "${APP_ICNS}"
+        DEPENDS "${APP_ICNS_SOURCE}"
+        COMMENT "Generating macOS app icon (.icns)"
+        VERBATIM
+    )
+    set_source_files_properties("${APP_ICNS}" PROPERTIES GENERATED TRUE MACOSX_PACKAGE_LOCATION "Resources")
+    list(APPEND SOURCES "${APP_ICNS}")
 endif()
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Add generated config header include directory
 target_include_directories(${PROJECT_NAME} PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/include"
+    "${PROTO_BIN_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    ${PC_PROTOBUF_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    Qt6::Widgets 
-    Qt6::Network 
+    Qt6::Widgets
+    Qt6::Network
     Qt6::Gui
+    Qt6::WebSockets
+    ZLIB::ZLIB
 )
+target_link_options(${PROJECT_NAME} PRIVATE ${PC_PROTOBUF_LDFLAGS})
 
 if(UNIX AND NOT APPLE)
     target_include_directories(${PROJECT_NAME} PRIVATE ${X11_INCLUDE_DIR})
@@ -195,20 +252,13 @@ endif()
 
 if(APPLE)
     set_source_files_properties("${APP_ICON_ASSET}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    add_executable(set_bundle_icon_mac src/set_bundle_icon_mac.mm)
-    target_link_libraries(set_bundle_icon_mac PRIVATE "-framework AppKit")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND $<TARGET_FILE:set_bundle_icon_mac>
-            "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>"
-            "${APP_ICON_ASSET}"
-        VERBATIM
-    )
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "SpotifyVol"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.spotifyvol.app"
         MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
+        MACOSX_BUNDLE_ICON_FILE "app_icon.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos/Info.plist.in"
     )
 

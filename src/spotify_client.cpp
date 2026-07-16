@@ -1,32 +1,65 @@
 #include "spotify_client.h"
-#include <app_config.h>
-#include <QSettings>
-#include <QDebug>
-#include <QProcessEnvironment>
-#include <QFile>
-#include <QCoreApplication>
+#include "implementation/app_settings.h"
+
+#include <QWebSocket>
+#include <QSslError>
 #include <QDateTime>
-#include <QRegularExpression>
+#include <iostream>
+#include <string>
+#include <zlib.h>
+
+// The connect-state protos define a PlayerState field named "signals", which
+// collides with Qt's `signals` keyword macro. Neutralize the Qt keyword macros
+// while the generated protobuf headers are included.
+QT_WARNING_PUSH
+#pragma push_macro("signals")
+#pragma push_macro("slots")
+#pragma push_macro("emit")
+#undef signals
+#undef slots
+#undef emit
+#include "spotify/connectstate/connect.pb.h"
+#include "spotify/connectstate/player.pb.h"
+#include "spotify/connectstate/devices/connect_devices.pb.h"
+#include "spotify/clienttoken/http/v0/clienttoken.pb.h"
+#include "spotify/clienttoken/data/v0/connectivity.pb.h"
+#include "spotify/extendedmetadata/extended_metadata.pb.h"
+#include "spotify/extendedmetadata/extension_kind.pb.h"
+#include "spotify/extendedmetadata/entity_extension_data.pb.h"
+#include "spotify/metadata/metadata.pb.h"
+#pragma pop_macro("emit")
+#pragma pop_macro("slots")
+#pragma pop_macro("signals")
+QT_WARNING_POP
 
 namespace {
 constexpr int kPendingVolumeGracePeriodMs = 2500;
-constexpr auto kSpotifyAuthScope = "user-modify-playback-state user-read-playback-state";
-const QUrl kAuthorizeUrl(QStringLiteral("https://accounts.spotify.com/authorize"));
-const QUrl kTokenUrl(QStringLiteral("https://accounts.spotify.com/api/token"));
-const QUrl kPlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player"));
-const QUrl kStartPlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/play"));
-const QUrl kPausePlaybackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/pause"));
-const QUrl kNextTrackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/next"));
-const QUrl kPrevTrackUrl(QStringLiteral("https://api.spotify.com/v1/me/player/previous"));
-const QUrl kVolumeUrl(QStringLiteral("https://api.spotify.com/v1/me/player/volume"));
+constexpr int kMaxConnectVolume = 65535;
+
+// Well-known Spotify desktop client id (librespot), required for the device flow.
+const char kClientIdHex[] = "65b708073fc0480ea92a077233ca87bd";
+const char kUserAgent[] = "Spotify/125700463 Win32_x86_64/0 (PC desktop)";
+const char kClientVersion[] = "1.2.52.442.g01d2b6ec";
+const char kDeviceName[] = "SpotifyVol";
+
+const char kDeviceAuthorizeUrl[] = "https://accounts.spotify.com/oauth2/device/authorize";
+const char kTokenUrl[] = "https://accounts.spotify.com/api/token";
+const char kClientTokenUrl[] = "https://clienttoken.spotify.com/v1/clienttoken";
+const char kApresolveUrl[] = "https://apresolve.spotify.com/?type=dealer&type=spclient";
+
+const char kDeviceFlowScopes[] =
+    "app-remote-control,playlist-modify,playlist-modify-private,playlist-modify-public,"
+    "playlist-read,playlist-read-collaborative,playlist-read-private,streaming,"
+    "ugc-image-upload,user-follow-modify,user-follow-read,user-library-modify,"
+    "user-library-read,user-modify,user-modify-playback-state,user-modify-private,"
+    "user-personalized,user-read-birthdate,user-read-currently-playing,user-read-email,"
+    "user-read-play-history,user-read-playback-position,user-read-playback-state,"
+    "user-read-private,user-read-recently-played,user-top-read";
 }
 
-SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNetworkAccessManager(this)) {
-    loadTokens();
-
-    pollTimer = new QTimer(this);
-    connect(pollTimer, &QTimer::timeout, this, &SpotifyClient::pollPlayback);
-    updatePollTimerInterval();
+SpotifyClient::SpotifyClient(QObject *parent)
+    : QObject(parent), network(new QNetworkAccessManager(this)) {
+    deviceId = AppSettings::loadOrCreateDeviceId();
 
     rateLimitTimer = new QTimer(this);
     rateLimitTimer->setSingleShot(true);
@@ -34,71 +67,747 @@ SpotifyClient::SpotifyClient(QObject *parent) : QObject(parent), network(new QNe
         rateLimited = false;
         rateLimitRetryAfterMs = 0;
         emitRateLimitState(0);
-        pollPlayback();
+    });
+
+    devicePollTimer = new QTimer(this);
+    connect(devicePollTimer, &QTimer::timeout, this, &SpotifyClient::pollDeviceToken);
+
+    webSocket = new QWebSocket(QString(), QWebSocketProtocol::VersionLatest, this);
+    connect(webSocket, &QWebSocket::connected, this, &SpotifyClient::onWebSocketConnected);
+    connect(webSocket, &QWebSocket::disconnected, this, &SpotifyClient::onWebSocketDisconnected);
+    connect(webSocket, &QWebSocket::textMessageReceived, this, &SpotifyClient::onWebSocketTextMessageReceived);
+    connect(webSocket, &QWebSocket::sslErrors, this, [this](const QList<QSslError> &errors) {
+        QStringList errStrings;
+        for (const auto &err : errors) {
+            errStrings.append(err.errorString());
+        }
+        logMessage("[WS] SSL errors: " + errStrings.join(" | "));
+    });
+    connect(webSocket, &QWebSocket::errorOccurred, this, [this](QAbstractSocket::SocketError error) {
+        logMessage(QString("[WS] socket error %1: %2").arg(error).arg(webSocket->errorString()));
+    });
+
+    pingTimer = new QTimer(this);
+    connect(pingTimer, &QTimer::timeout, this, &SpotifyClient::sendWebSocketPing);
+}
+
+// ---------------------------------------------------------------------------
+// OAuth2 device flow
+// ---------------------------------------------------------------------------
+
+void SpotifyClient::startAuthorization() {
+    requestDeviceCode();
+}
+
+void SpotifyClient::requestDeviceCode() {
+    QUrlQuery form;
+    form.addQueryItem("client_id", kClientIdHex);
+    form.addQueryItem("scope", kDeviceFlowScopes);
+    form.addQueryItem("intent", "login");
+    form.addQueryItem("creation_point",
+                      QString("https://login.app.spotify.com/?client_id=%1"
+                              "&utm_source=spotify&utm_medium=desktop-win32&utm_campaign=organic")
+                          .arg(kClientIdHex));
+
+    QNetworkRequest request{QUrl(QString::fromLatin1(kDeviceAuthorizeUrl))};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    request.setRawHeader("User-Agent", kUserAgent);
+
+    logMessage("Requesting device authorization from Spotify...");
+
+    QNetworkReply *reply = network->post(request, form.toString(QUrl::FullyEncoded).toUtf8());
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray data = reply->readAll();
+        const bool netError = reply->error() != QNetworkReply::NoError;
+        reply->deleteLater();
+
+        const QJsonObject obj = QJsonDocument::fromJson(data).object();
+        deviceCode = obj.value("device_code").toString();
+        const QString userCode = obj.value("user_code").toString();
+        const QString verifyUrl = obj.value("verification_uri_complete").toString();
+        const int interval = obj.value("interval").toInt(5);
+        const int expiresIn = obj.value("expires_in").toInt(600);
+
+        if (netError || deviceCode.isEmpty() || verifyUrl.isEmpty()) {
+            logMessage("Failed to start device authorization. Response: " + QString::fromUtf8(data.left(300)));
+            return;
+        }
+
+        deviceFlowDeadlineMs = QDateTime::currentMSecsSinceEpoch() + qint64(expiresIn) * 1000;
+        logMessage(QString("Open %1 and confirm the code %2 to authorize.").arg(verifyUrl, userCode));
+        emit authorizationPending(verifyUrl, userCode);
+        QDesktopServices::openUrl(QUrl(verifyUrl));
+
+        devicePollTimer->start(qMax(1, interval) * 1000);
     });
 }
 
-void SpotifyClient::updatePollTimerInterval() {
-    if (!pollTimer || rateLimited) {
+void SpotifyClient::pollDeviceToken() {
+    if (deviceCode.isEmpty()) {
+        devicePollTimer->stop();
+        return;
+    }
+    if (QDateTime::currentMSecsSinceEpoch() > deviceFlowDeadlineMs) {
+        devicePollTimer->stop();
+        deviceCode.clear();
+        logMessage("Device authorization expired before you approved it. Click Connect to try again.");
         return;
     }
 
-    pollTimer->setInterval(getPollIntervalMs());
-    if (!pollTimer->isActive()) {
-        pollTimer->start();
+    QUrlQuery form;
+    form.addQueryItem("client_id", kClientIdHex);
+    form.addQueryItem("device_code", deviceCode);
+    form.addQueryItem("grant_type", "urn:ietf:params:oauth:grant-type:device_code");
+
+    QNetworkRequest request{QUrl(QString::fromLatin1(kTokenUrl))};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    request.setRawHeader("User-Agent", kUserAgent);
+
+    QNetworkReply *reply = network->post(request, form.toString(QUrl::FullyEncoded).toUtf8());
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        const QJsonObject obj = QJsonDocument::fromJson(data).object();
+        if (!obj.value("access_token").toString().isEmpty()) {
+            devicePollTimer->stop();
+            deviceCode.clear();
+            applyTokenResponse(obj);
+            logMessage("Authorized! Bringing up the Spotify session...");
+            continueSessionBringUp();
+            return;
+        }
+
+        const QString err = obj.value("error").toString();
+        if (err == "authorization_pending") {
+            return; // keep waiting
+        }
+        if (err == "slow_down") {
+            devicePollTimer->setInterval(devicePollTimer->interval() + 5000);
+            return;
+        }
+        devicePollTimer->stop();
+        deviceCode.clear();
+        logMessage("Device authorization failed: " +
+                   (obj.value("error_description").toString().isEmpty()
+                        ? err
+                        : obj.value("error_description").toString()));
+    });
+}
+
+void SpotifyClient::applyTokenResponse(const QJsonObject &obj) {
+    accessToken = obj.value("access_token").toString();
+    const int expiresIn = obj.value("expires_in").toInt(3600);
+    accessTokenExpiryMs = QDateTime::currentMSecsSinceEpoch() + qint64(expiresIn) * 1000;
+
+    const QString newRefresh = obj.value("refresh_token").toString();
+    if (!newRefresh.isEmpty()) {
+        refreshToken = newRefresh;
+        AppSettings::saveRefreshToken(refreshToken);
     }
 }
 
-int SpotifyClient::getPollIntervalMs() {
-    if (isRateLimited()) {
-        return rateLimitRetryAfterMs;
-    } else if (!hasCredentialsConfigured()) {
-        return AppConfig::POLL_INTERVAL_MS;
-    } else if (device.isEmpty()) {
-        if (localNoDevicePollIntervalMs < AppConfig::NO_DEVICE_POLL_INTERVAL_MAX_MS) {
-            localNoDevicePollIntervalMs += AppConfig::NO_DEVICE_POLL_INTERVAL_INCREMENT_MS;
+void SpotifyClient::resumeSession() {
+    refreshToken = AppSettings::loadRefreshToken();
+    if (refreshToken.isEmpty()) {
+        logMessage("No stored Spotify session. Open Settings and click Connect Spotify to authorize.");
+        return;
+    }
+    logMessage("Resuming Spotify session from stored credentials...");
+    refreshAccessToken();
+}
+
+void SpotifyClient::refreshAccessToken() {
+    if (refreshToken.isEmpty()) {
+        logMessage("Cannot refresh: no refresh token. Please re-authorize (Connect Spotify).");
+        return;
+    }
+
+    QUrlQuery form;
+    form.addQueryItem("grant_type", "refresh_token");
+    form.addQueryItem("refresh_token", refreshToken);
+    form.addQueryItem("client_id", kClientIdHex);
+
+    QNetworkRequest request{QUrl(QString::fromLatin1(kTokenUrl))};
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
+    request.setRawHeader("User-Agent", kUserAgent);
+
+    QNetworkReply *reply = network->post(request, form.toString(QUrl::FullyEncoded).toUtf8());
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        const QJsonObject obj = QJsonDocument::fromJson(data).object();
+        if (obj.value("access_token").toString().isEmpty()) {
+            logMessage("Token refresh failed; the stored session is no longer valid. Please Connect Spotify again.");
+            AppSettings::clearRefreshToken();
+            refreshToken.clear();
+            return;
         }
-        return localNoDevicePollIntervalMs;
-    } else if (!lastIsPlaying) {
-        return AppConfig::PAUSED_POLL_INTERVAL_MS;
+        applyTokenResponse(obj);
+        continueSessionBringUp();
+    });
+}
+
+bool SpotifyClient::accessTokenExpired() const {
+    return accessTokenExpiryMs > 0 &&
+           QDateTime::currentMSecsSinceEpoch() >= accessTokenExpiryMs - 30000;
+}
+
+// ---------------------------------------------------------------------------
+// Session bring-up: client token -> apresolve -> dealer
+// ---------------------------------------------------------------------------
+
+void SpotifyClient::continueSessionBringUp() {
+    if (accessToken.isEmpty()) {
+        return;
+    }
+    fetchClientToken();
+}
+
+void SpotifyClient::fetchClientToken() {
+    const bool valid = !clientToken.isEmpty() &&
+                       QDateTime::currentMSecsSinceEpoch() < clientTokenExpiryMs;
+    if (valid) {
+        resolveEndpoints();
+        return;
+    }
+
+    spotify::clienttoken::http::v0::ClientTokenRequest req;
+    req.set_request_type(spotify::clienttoken::http::v0::REQUEST_CLIENT_DATA_REQUEST);
+    auto *clientData = req.mutable_client_data();
+    clientData->set_client_version(kClientVersion);
+    clientData->set_client_id(kClientIdHex);
+    auto *sdk = clientData->mutable_connectivity_sdk_data();
+    sdk->set_device_id(deviceId.toStdString());
+    auto *win = sdk->mutable_platform_specific_data()->mutable_desktop_windows();
+    win->set_os_version(10);
+    win->set_os_build(22631);
+    win->set_platform_id(2);
+    win->set_image_file_machine(34404);
+    win->set_pe_machine(34404);
+
+    std::string body;
+    if (!req.SerializeToString(&body)) {
+        return;
+    }
+
+    QNetworkRequest request{QUrl(QString::fromLatin1(kClientTokenUrl))};
+    request.setRawHeader("Accept", "application/x-protobuf");
+    request.setRawHeader("Content-Type", "application/x-protobuf");
+    request.setRawHeader("User-Agent", kUserAgent);
+
+    logMessage("Requesting Spotify client token...");
+    QNetworkReply *reply = network->post(request, QByteArray(body.data(), int(body.size())));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray data = reply->readAll();
+        const bool netError = reply->error() != QNetworkReply::NoError;
+        reply->deleteLater();
+
+        spotify::clienttoken::http::v0::ClientTokenResponse resp;
+        if (netError || !resp.ParseFromArray(data.constData(), int(data.size()))) {
+            logMessage("Client token request failed; continuing without one.");
+            resolveEndpoints();
+            return;
+        }
+
+        if (resp.response_type() == spotify::clienttoken::http::v0::RESPONSE_GRANTED_TOKEN_RESPONSE) {
+            clientToken = QString::fromStdString(resp.granted_token().token());
+            const int ttl = resp.granted_token().expires_after_seconds();
+            clientTokenExpiryMs = QDateTime::currentMSecsSinceEpoch() + qint64(qMax(60, ttl) - 60) * 1000;
+            logMessage(QString("Obtained client token (%1 chars).").arg(clientToken.size()));
+        } else {
+            logMessage("Client token response carried a challenge (unsupported); continuing without one.");
+        }
+        resolveEndpoints();
+    });
+}
+
+void SpotifyClient::resolveEndpoints() {
+    if (endpointsResolved) {
+        connectWebSocket();
+        return;
+    }
+
+    QNetworkRequest request{QUrl(QString::fromLatin1(kApresolveUrl))};
+    request.setRawHeader("User-Agent", kUserAgent);
+
+    QNetworkReply *reply = network->get(request);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        const QJsonObject obj = QJsonDocument::fromJson(data).object();
+        const QJsonArray dealers = obj.value("dealer").toArray();
+        const QJsonArray spclients = obj.value("spclient").toArray();
+
+        if (!dealers.isEmpty()) {
+            QString host = dealers.first().toString();
+            dealerHost = host.section(':', 0, 0);
+        }
+        if (!spclients.isEmpty()) {
+            QString host = spclients.first().toString().section(':', 0, 0);
+            spclientBaseUrl = "https://" + host;
+        }
+        endpointsResolved = true;
+        logMessage(QString("Resolved endpoints (dealer=%1, spclient=%2).").arg(dealerHost, spclientBaseUrl));
+        connectWebSocket();
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Dealer WebSocket
+// ---------------------------------------------------------------------------
+
+void SpotifyClient::connectWebSocket() {
+    if (accessToken.isEmpty()) {
+        return;
+    }
+    if (accessTokenExpired()) {
+        logMessage("Access token expired; refreshing before connecting dealer.");
+        refreshAccessToken();
+        return;
+    }
+    if (webSocket->state() == QAbstractSocket::ConnectedState ||
+        webSocket->state() == QAbstractSocket::ConnectingState) {
+        return;
+    }
+
+    QUrl url(QString("wss://%1/").arg(dealerHost));
+    QUrlQuery query;
+    query.addQueryItem("access_token", accessToken);
+    url.setQuery(query);
+
+    logMessage(QString("[WS] Connecting to dealer %1 ...").arg(dealerHost));
+
+    QNetworkRequest request(url);
+    request.setRawHeader("Origin", "https://open.spotify.com");
+    request.setRawHeader("User-Agent", kUserAgent);
+    webSocket->open(request);
+}
+
+void SpotifyClient::onWebSocketConnected() {
+    logMessage("[WS] Dealer connected; waiting for connection id...");
+    connectStateRegistered = false;
+    sendWebSocketPing();
+    pingTimer->start(30000);
+}
+
+void SpotifyClient::onWebSocketDisconnected() {
+    logMessage(QString("[WS] Dealer disconnected: %1").arg(webSocket->errorString()));
+    pingTimer->stop();
+    connectStateRegistered = false;
+    spotConnId.clear();
+
+    QTimer::singleShot(5000, this, [this]() { connectWebSocket(); });
+}
+
+void SpotifyClient::sendWebSocketPing() {
+    if (webSocket->state() == QAbstractSocket::ConnectedState) {
+        QJsonObject pingObj;
+        pingObj["type"] = "ping";
+        webSocket->sendTextMessage(QJsonDocument(pingObj).toJson(QJsonDocument::Compact));
+    }
+}
+
+void SpotifyClient::onWebSocketTextMessageReceived(const QString &message) {
+    const QJsonDocument doc = QJsonDocument::fromJson(message.toUtf8());
+    if (!doc.isObject()) {
+        return;
+    }
+    const QJsonObject obj = doc.object();
+    const QString uri = obj.value("uri").toString();
+
+    if (uri.startsWith("hm://pusher/v1/connections/")) {
+        const QJsonObject headers = obj.value("headers").toObject();
+        spotConnId = headers.value("Spotify-Connection-Id").toString();
+        if (!spotConnId.isEmpty()) {
+            logMessage(QString("[WS] Received connection id (%1 chars); registering connect-state.").arg(spotConnId.size()));
+            registerConnectState();
+        }
+        return;
+    }
+
+    if (uri.startsWith("hm://connect-state/v1/cluster")) {
+        const QJsonObject headers = obj.value("headers").toObject();
+        const bool gzipped = headers.value("Transfer-Encoding").toString() == "gzip";
+        const QJsonArray payloads = obj.value("payloads").toArray();
+        if (payloads.isEmpty()) {
+            return;
+        }
+        QByteArray payload = QByteArray::fromBase64(payloads.first().toString().toUtf8());
+        if (gzipped) {
+            payload = gunzip(payload);
+        }
+        handleClusterBytes(payload, /*isUpdate=*/true);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Connect-state
+// ---------------------------------------------------------------------------
+
+void SpotifyClient::registerConnectState() {
+    if (spotConnId.isEmpty()) {
+        return;
+    }
+
+    spotify::connectstate::PutStateRequest req;
+    req.set_client_side_timestamp(QDateTime::currentMSecsSinceEpoch());
+    req.set_member_type(spotify::connectstate::CONNECT_STATE);
+    req.set_put_state_reason(spotify::connectstate::NEW_DEVICE);
+    req.set_is_active(false);
+
+    auto *info = req.mutable_device()->mutable_device_info();
+    info->set_can_play(false);
+    info->set_volume(kMaxConnectVolume);
+    info->set_name(kDeviceName);
+    info->set_device_id(deviceId.toStdString());
+    info->set_device_type(spotify::connectstate::devices::COMPUTER);
+    info->set_device_software_version("spotifyvol 1.0");
+    info->set_client_id(kClientIdHex);
+    info->set_spirc_version("3.2.6");
+
+    auto *cap = info->mutable_capabilities();
+    cap->set_can_be_player(false);
+    cap->set_gaia_eq_connect_id(true);
+    cap->set_is_observable(true);
+    cap->set_volume_steps(100);
+    cap->add_supported_types("audio/track");
+    cap->add_supported_types("audio/episode");
+    cap->set_command_acks(true);
+    cap->set_hidden(true);
+    cap->set_disable_volume(true);
+    cap->set_is_controllable(false);
+    cap->set_supports_command_request(true);
+    cap->set_supports_gzip_pushes(true);
+    cap->set_supports_playlist_v2(true);
+    cap->set_supports_set_backend_metadata(true);
+    cap->set_supports_set_options_command(true);
+    cap->set_needs_full_player_state(false);
+
+    std::string body;
+    if (!req.SerializeToString(&body)) {
+        return;
+    }
+
+    QUrl url(spclientBaseUrl + "/connect-state/v1/devices/" + deviceId);
+    QNetworkRequest request = spclientRequest(url);
+    request.setRawHeader("Content-Type", "application/x-protobuf");
+
+    QNetworkReply *reply = network->sendCustomRequest(request, "PUT", QByteArray(body.data(), int(body.size())));
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        if (status == 200) {
+            connectStateRegistered = true;
+            logMessage("[connect-state] Registered as an observer device. Listening for realtime pushes.");
+            emit authComplete();
+            handleClusterBytes(data, /*isUpdate=*/false);
+        } else if (status == 401) {
+            logMessage("[connect-state] Registration unauthorized; refreshing token.");
+            refreshAccessToken();
+        } else {
+            logMessage(QString("[connect-state] Registration failed (HTTP %1): %2")
+                           .arg(status)
+                           .arg(QString::fromUtf8(data.left(200))));
+        }
+    });
+}
+
+void SpotifyClient::handleClusterBytes(const QByteArray &protoBytes, bool isUpdate) {
+    spotify::connectstate::Cluster cluster;
+    if (isUpdate) {
+        spotify::connectstate::ClusterUpdate update;
+        if (!update.ParseFromArray(protoBytes.constData(), int(protoBytes.size()))) {
+            return;
+        }
+        cluster = update.cluster();
+    } else if (!cluster.ParseFromArray(protoBytes.constData(), int(protoBytes.size()))) {
+        return;
+    }
+
+    activeDeviceId = QString::fromStdString(cluster.active_device_id());
+    if (activeDeviceId.isEmpty() || !cluster.has_player_state()) {
+        // Nothing is playing anywhere.
+        lastIsPlaying = false;
+        setVolumeControlSupported(false);
+        emit stateSynced(currentVolume, 0, false, false);
+        return;
+    }
+
+    const spotify::connectstate::PlayerState &ps = cluster.player_state();
+    const bool isPlaying = ps.is_playing() && !ps.is_paused();
+
+    qint64 positionMs = ps.position_as_of_timestamp();
+    if (isPlaying && ps.timestamp() > 0) {
+        const qint64 elapsed = QDateTime::currentMSecsSinceEpoch() - ps.timestamp();
+        if (elapsed > 0 && elapsed < 10 * 60 * 1000) {
+            positionMs += elapsed;
+        }
+    }
+    const int durationMs = int(ps.duration());
+    if (durationMs > 0) {
+        positionMs = qBound<qint64>(qint64(0), positionMs, qint64(durationMs));
+    }
+
+    // Volume + volume support from the active device entry.
+    int volumePercent = currentVolume;
+    bool volumeSupported = false;
+    const auto &deviceMap = cluster.device();
+    auto devIt = deviceMap.find(activeDeviceId.toStdString());
+    if (devIt != deviceMap.end()) {
+        const spotify::connectstate::DeviceInfo &info = devIt->second;
+        volumePercent = int(qRound(info.volume() * 100.0 / kMaxConnectVolume));
+        volumeSupported = !info.capabilities().disable_volume();
+    }
+
+    // Honour an in-flight local volume change so the OSD doesn't snap back.
+    const bool volumePending = pendingVolume >= 0 && pendingVolumeTimer.isValid() &&
+                               pendingVolumeTimer.elapsed() < kPendingVolumeGracePeriodMs;
+    if (volumePending) {
+        volumePercent = pendingVolume;
     } else {
-        if (localNoDevicePollIntervalMs > AppConfig::NO_DEVICE_POLL_INTERVAL_STARTING_MS) {
-            localNoDevicePollIntervalMs = AppConfig::NO_DEVICE_POLL_INTERVAL_STARTING_MS;
-        }
-        return AppConfig::POLL_INTERVAL_MS;
+        pendingVolume = -1;
     }
+
+    currentVolume = qBound(0, volumePercent, 100);
+    lastProgressMs = int(positionMs);
+    lastDurationMs = durationMs;
+    lastIsPlaying = isPlaying;
+    setVolumeControlSupported(volumeSupported);
+
+    const QString trackUri = QString::fromStdString(ps.track().uri());
+    const QString trackId = trackUri.startsWith("spotify:track:") ? trackUri.section(':', 2, 2) : QString();
+
+    if (!trackId.isEmpty() && trackId != lastTrackId) {
+        lastTrackId = trackId;
+
+        // The realtime cluster push carries the display metadata directly, so we
+        // render it immediately with no Web-API call. Only when the artist name
+        // is absent (some editorial/radio contexts omit it) do we fall back to a
+        // single /v1/tracks lookup to enrich it.
+        const auto &meta = ps.track().metadata();
+        auto metaValue = [&meta](const char *key) -> QString {
+            auto it = meta.find(key);
+            return it != meta.end() ? QString::fromStdString(it->second) : QString();
+        };
+
+        const QString title = metaValue("title");
+        const QString artist = metaValue("artist_name");
+
+        QString image = metaValue("image_xlarge_url");
+        if (image.isEmpty()) image = metaValue("image_large_url");
+        if (image.isEmpty()) image = metaValue("image_url");
+        if (image.isEmpty()) image = metaValue("image_small_url");
+        if (image.startsWith("spotify:image:")) {
+            image = "https://i.scdn.co/image/" + image.mid(int(sizeof("spotify:image:") - 1));
+        }
+
+        logMessage(QString("[track] \"%1\" - %2").arg(title, artist.isEmpty() ? "(resolving artist…)" : artist));
+        emit trackChanged(currentVolume, title, artist, trackId, image,
+                          lastProgressMs, lastDurationMs, lastIsPlaying, volumeSupported);
+
+        if (artist.isEmpty() || title.isEmpty()) {
+            fetchTrackDetails(trackId);
+        }
+    }
+
+    emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeSupported);
 }
 
-QString SpotifyClient::redirectUri() const {
-    return QString("http://127.0.0.1:%1/callback").arg(redirectPort);
+void SpotifyClient::fetchTrackDetails(const QString &trackId) {
+    // Resolve full metadata (artist names, cover art) via Spotify's internal
+    // extended-metadata service on spclient — NOT the public Web API — so this is
+    // not subject to api.spotify.com rate limiting. This is how go-librespot/Mira
+    // does it. Only called when the realtime cluster push lacked the artist name.
+    const QString entityUri = "spotify:track:" + trackId;
+
+    spotify::extendedmetadata::BatchedEntityRequest req;
+    auto *entity = req.add_entity_request();
+    entity->set_entity_uri(entityUri.toStdString());
+    entity->add_query()->set_extension_kind(spotify::extendedmetadata::TRACK_V4);
+
+    std::string body;
+    if (!req.SerializeToString(&body)) {
+        return;
+    }
+
+    QUrl url(spclientBaseUrl + "/extended-metadata/v0/extended-metadata");
+    QNetworkRequest request = spclientRequest(url);
+    request.setRawHeader("Accept", "application/x-protobuf");
+    request.setRawHeader("Content-Type", "application/x-protobuf");
+
+    QNetworkReply *reply = network->post(request, QByteArray(body.data(), int(body.size())));
+    connect(reply, &QNetworkReply::finished, this, [this, reply, trackId, entityUri]() {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray data = reply->readAll();
+        reply->deleteLater();
+
+        if (status == 401) {
+            refreshAccessToken();
+            return;
+        }
+        if (status == 429) {
+            enterRateLimitCooldown(parseRetryAfterMs(reply));
+            return;
+        }
+        if (status != 200) {
+            logMessage(QString("[track] metadata lookup for %1 failed (HTTP %2)").arg(trackId).arg(status));
+            return;
+        }
+
+        spotify::extendedmetadata::BatchedExtensionResponse resp;
+        if (!resp.ParseFromArray(data.constData(), int(data.size()))) {
+            return;
+        }
+
+        for (const auto &arr : resp.extended_metadata()) {
+            if (arr.extension_kind() != spotify::extendedmetadata::TRACK_V4) {
+                continue;
+            }
+            for (const auto &ext : arr.extension_data()) {
+                if (ext.entity_uri() != entityUri.toStdString()) {
+                    continue;
+                }
+                const int code = ext.header().status_code();
+                if (code != 0 && code != 200) {
+                    continue;
+                }
+
+                spotify::metadata::Track track;
+                if (!ext.extension_data().UnpackTo(&track)) {
+                    continue;
+                }
+
+                const QString name = QString::fromStdString(track.name());
+
+                QStringList artists;
+                for (int i = 0; i < track.artist_size(); ++i) {
+                    artists.append(QString::fromStdString(track.artist(i).name()));
+                }
+
+                // Cover art: pick the largest image from the album's cover group.
+                QString albumArtUrl;
+                const auto &album = track.album();
+                const spotify::metadata::Image *bestImage = nullptr;
+                for (int i = 0; i < album.cover_group().image_size(); ++i) {
+                    const auto &img = album.cover_group().image(i);
+                    if (!bestImage || int(img.size()) > int(bestImage->size())) {
+                        bestImage = &img;
+                    }
+                }
+                for (int i = 0; !bestImage && i < album.cover_size(); ++i) {
+                    bestImage = &album.cover(i);
+                }
+                if (bestImage && bestImage->has_file_id()) {
+                    const QByteArray hex =
+                        QByteArray(bestImage->file_id().data(), int(bestImage->file_id().size())).toHex();
+                    albumArtUrl = "https://i.scdn.co/image/" + QString::fromUtf8(hex);
+                }
+
+                logMessage(QString("[track] metadata: \"%1\" - %2").arg(name, artists.join(", ")));
+                emit trackChanged(currentVolume, name, artists.join(", "), trackId, albumArtUrl,
+                                  lastProgressMs, lastDurationMs, lastIsPlaying, volumeControlSupported);
+                return;
+            }
+        }
+    });
 }
 
-bool SpotifyClient::hasCredentialsConfigured() const {
-    return !clientId.trimmed().isEmpty() && !clientSecret.trimmed().isEmpty();
+// ---------------------------------------------------------------------------
+// Remote control
+// ---------------------------------------------------------------------------
+
+bool SpotifyClient::setVolume(int volume) {
+    // User-initiated control must never be blocked by a metadata rate-limit
+    // cooldown, so it is intentionally not gated on isRateLimited().
+    if (!connectStateRegistered || activeDeviceId.isEmpty() || activeDeviceId == deviceId ||
+        spotConnId.isEmpty() || !volumeControlSupported) {
+        return false;
+    }
+
+    currentVolume = qBound(0, volume, 100);
+    pendingVolume = currentVolume;
+    pendingVolumeTimer.restart();
+
+    const int connectVolume = qRound(currentVolume * kMaxConnectVolume / 100.0);
+    const QByteArray body = QJsonDocument(QJsonObject{{"volume", connectVolume}}).toJson(QJsonDocument::Compact);
+
+    QUrl url(spclientBaseUrl + QString("/connect-state/v1/connect/volume/from/%1/to/%2").arg(deviceId, activeDeviceId));
+    QNetworkRequest request = spclientRequest(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply *reply = network->sendCustomRequest(request, "PUT", body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply]() {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        reply->deleteLater();
+        if (status == 401) {
+            refreshAccessToken();
+        } else if (status == 429) {
+            enterRateLimitCooldown(parseRetryAfterMs(reply));
+        }
+    });
+    return true;
 }
 
-bool SpotifyClient::hasStoredSession() const {
-    return !accessToken.isEmpty() || !refreshToken.isEmpty();
+void SpotifyClient::togglePlayPause() {
+    sendConnectCommand(lastIsPlaying ? "pause" : "resume");
 }
 
-QString SpotifyClient::authRedirectUri() const {
-    return redirectUri();
+void SpotifyClient::nextTrack() {
+    sendConnectCommand("skip_next");
 }
 
-QNetworkRequest SpotifyClient::authorizedRequest(const QUrl &url) const {
+void SpotifyClient::prevTrack() {
+    sendConnectCommand("skip_prev");
+}
+
+void SpotifyClient::sendConnectCommand(const QString &endpoint) {
+    // User-initiated control is not gated on a metadata rate-limit cooldown.
+    if (!connectStateRegistered || activeDeviceId.isEmpty() || activeDeviceId == deviceId ||
+        spotConnId.isEmpty()) {
+        return;
+    }
+
+    const QByteArray body =
+        QJsonDocument(QJsonObject{{"command", QJsonObject{{"endpoint", endpoint}}}}).toJson(QJsonDocument::Compact);
+
+    QUrl url(spclientBaseUrl + QString("/connect-state/v1/player/command/from/%1/to/%2").arg(deviceId, activeDeviceId));
+    QNetworkRequest request = spclientRequest(url);
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+    QNetworkReply *reply = network->post(request, body);
+    connect(reply, &QNetworkReply::finished, this, [this, reply, endpoint]() {
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        reply->deleteLater();
+        if (status == 401) {
+            refreshAccessToken();
+        } else if (status == 429) {
+            enterRateLimitCooldown(parseRetryAfterMs(reply));
+        } else if (status / 100 != 2) {
+            logMessage(QString("[connect-state] command '%1' failed (HTTP %2)").arg(endpoint).arg(status));
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+QNetworkRequest SpotifyClient::spclientRequest(const QUrl &url) const {
     QNetworkRequest request(url);
     request.setRawHeader("Authorization", ("Bearer " + accessToken).toUtf8());
+    if (!clientToken.isEmpty()) {
+        request.setRawHeader("Client-Token", clientToken.toUtf8());
+    }
+    if (!spotConnId.isEmpty()) {
+        request.setRawHeader("X-Spotify-Connection-Id", spotConnId.toUtf8());
+    }
+    request.setRawHeader("User-Agent", kUserAgent);
     return request;
-}
-
-void SpotifyClient::postTokenRequest(const QUrlQuery &body, const std::function<void(QNetworkReply *)> &handler) {
-    QNetworkRequest request(kTokenUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-
-    QNetworkReply *reply = network->post(request, body.toString(QUrl::FullyEncoded).toUtf8());
-    connect(reply, &QNetworkReply::finished, this, [reply, handler]() {
-        handler(reply);
-    });
 }
 
 void SpotifyClient::setVolumeControlSupported(bool supported) {
@@ -108,13 +817,46 @@ void SpotifyClient::setVolumeControlSupported(bool supported) {
     }
 }
 
-void SpotifyClient::emitPlaybackState() {
-    emit stateSynced(currentVolume, lastProgressMs, lastIsPlaying, volumeControlSupported);
+QByteArray SpotifyClient::gunzip(const QByteArray &data) {
+    if (data.isEmpty()) {
+        return {};
+    }
+
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+    if (inflateInit2(&strm, 15 + 16) != Z_OK) {
+        return {};
+    }
+
+    strm.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(data.constData()));
+    strm.avail_in = uInt(data.size());
+
+    QByteArray out;
+    char buffer[16384];
+    int ret = Z_OK;
+    do {
+        strm.next_out = reinterpret_cast<Bytef *>(buffer);
+        strm.avail_out = sizeof(buffer);
+        ret = inflate(&strm, Z_NO_FLUSH);
+        if (ret != Z_OK && ret != Z_STREAM_END) {
+            inflateEnd(&strm);
+            return {};
+        }
+        out.append(buffer, sizeof(buffer) - strm.avail_out);
+    } while (ret != Z_STREAM_END && strm.avail_in > 0);
+
+    inflateEnd(&strm);
+    return out;
 }
 
-void SpotifyClient::emitRateLimitState(int retryAfterMs) {
-    emit rateLimitChanged(retryAfterMs);
+void SpotifyClient::logMessage(const QString &msg) {
+    std::cout << msg.toStdString() << std::endl;
+    emit debugLog(msg);
 }
+
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
 
 bool SpotifyClient::isRateLimited() const {
     return rateLimited;
@@ -124,8 +866,11 @@ int SpotifyClient::rateLimitRemainingMs() const {
     if (!rateLimited || !rateLimitTimer->isActive()) {
         return 0;
     }
-
     return qMax(0, rateLimitTimer->remainingTime());
+}
+
+void SpotifyClient::emitRateLimitState(int retryAfterMs) {
+    emit rateLimitChanged(retryAfterMs);
 }
 
 int SpotifyClient::parseRetryAfterMs(QNetworkReply *reply) const {
@@ -133,347 +878,21 @@ int SpotifyClient::parseRetryAfterMs(QNetworkReply *reply) const {
     if (retryAfterValue.isEmpty()) {
         return 60000;
     }
-
     bool ok = false;
     const int seconds = QString::fromLatin1(retryAfterValue).trimmed().toInt(&ok);
     if (ok && seconds >= 0) {
         return seconds * 1000;
     }
-
-    const QDateTime retryAt = QDateTime::fromString(QString::fromLatin1(retryAfterValue).trimmed(), Qt::RFC2822Date);
-    if (retryAt.isValid()) {
-        const qint64 deltaMs = QDateTime::currentDateTimeUtc().msecsTo(retryAt.toUTC());
-        return static_cast<int>(qMax<qint64>(1000, deltaMs));
-    }
-
     return 60000;
 }
 
 void SpotifyClient::enterRateLimitCooldown(int retryAfterMs) {
-    const int normalizedRetryAfterMs = qMax(1000, retryAfterMs);
-
-    if (rateLimited && rateLimitTimer->isActive()) {
-        const int remainingMs = rateLimitTimer->remainingTime();
-        if (remainingMs > normalizedRetryAfterMs) {
-            return;
-        }
+    const int normalized = qMax(1000, retryAfterMs);
+    if (rateLimited && rateLimitTimer->isActive() && rateLimitTimer->remainingTime() > normalized) {
+        return;
     }
-
     rateLimited = true;
-    rateLimitRetryAfterMs = normalizedRetryAfterMs;
-    pollTimer->stop();
-    rateLimitTimer->start(normalizedRetryAfterMs);
-    emitRateLimitState(normalizedRetryAfterMs);
-}
-
-void SpotifyClient::startAuth() {
-    if (!hasCredentialsConfigured()) {
-        qDebug() << "Spotify auth cannot start without client credentials.";
-        return;
-    }
-
-    if (authServer) {
-        authServer->close();
-        authServer->deleteLater();
-        authServer = nullptr;
-    }
-
-    authServer = new QTcpServer(this);
-    if (!authServer->listen(QHostAddress::LocalHost, redirectPort)) {
-        qDebug() << "Failed to start auth server";
-        authServer->deleteLater();
-        authServer = nullptr;
-        return;
-    }
-    connect(authServer, &QTcpServer::newConnection, this, &SpotifyClient::onNewConnection);
-
-    QUrl authUrl(kAuthorizeUrl);
-    QUrlQuery query;
-    query.addQueryItem("client_id", clientId);
-    query.addQueryItem("response_type", "code");
-    query.addQueryItem("redirect_uri", redirectUri());
-    query.addQueryItem("scope", kSpotifyAuthScope);
-    authUrl.setQuery(query);
-    QDesktopServices::openUrl(authUrl);
-}
-
-void SpotifyClient::exchangeAuthorizationCode(const QString &code) {
-    QUrlQuery body;
-    body.addQueryItem("grant_type", "authorization_code");
-    body.addQueryItem("code", code);
-    body.addQueryItem("redirect_uri", redirectUri());
-    body.addQueryItem("client_id", clientId);
-    body.addQueryItem("client_secret", clientSecret);
-
-    postTokenRequest(body, [this](QNetworkReply *reply) {
-        handleTokenResponse(reply);
-    });
-}
-
-void SpotifyClient::onNewConnection() {
-    if (!authServer) {
-        return;
-    }
-
-    QTcpSocket *socket = authServer->nextPendingConnection();
-    connect(socket, &QTcpSocket::readyRead, [this, socket]() {
-        const QString requestData = QString::fromUtf8(socket->readAll());
-        const int requestLineEnd = requestData.indexOf("\r\n");
-        const QString requestLine = requestLineEnd >= 0 ? requestData.left(requestLineEnd) : requestData;
-        const QStringList parts = requestLine.split(' ', Qt::SkipEmptyParts);
-
-        if (parts.size() >= 2 && parts[0] == "GET") {
-            const QUrl callbackUrl(QString("http://127.0.0.1:%1%2").arg(redirectPort).arg(parts[1]));
-            const QString code = QUrlQuery(callbackUrl).queryItemValue("code");
-
-            socket->write("HTTP/1.1 200 OK\r\n\r\nAuth Complete! You can close this window.");
-            socket->disconnectFromHost();
-
-            if (authServer) {
-                authServer->close();
-                authServer->deleteLater();
-                authServer = nullptr;
-            }
-
-            if (code.isEmpty()) {
-                qDebug() << "Spotify auth callback arrived without an authorization code.";
-                return;
-            }
-
-            exchangeAuthorizationCode(code);
-        }
-    });
-}
-
-void SpotifyClient::handleTokenResponse(QNetworkReply *reply) {
-    if (reply->error() == QNetworkReply::NoError) {
-        QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-        accessToken = doc.object()["access_token"].toString();
-        refreshToken = doc.object()["refresh_token"].toString();
-        saveTokens();
-        emit authComplete();
-        updatePollTimerInterval();
-    } else {
-        qDebug() << "Token Error:" << reply->errorString();
-    }
-    reply->deleteLater();
-}
-
-bool SpotifyClient::setVolume(int volume) {
-    if (accessToken.isEmpty() || !volumeControlSupported || isRateLimited()) {
-        return false;
-    }
-
-    currentVolume = qBound(0, volume, 100);
-    pendingVolume = currentVolume;
-    pendingVolumeTimer.restart();
-
-    QUrl url(kVolumeUrl);
-    QUrlQuery query;
-    query.addQueryItem("volume_percent", QString::number(currentVolume));
-    url.setQuery(query);
-
-    QNetworkReply *reply = network->put(authorizedRequest(url), QByteArray());
-    connect(reply, &QNetworkReply::finished, [this, reply]() { handleVolumeResponse(reply); });
-    return true;
-}
-
-void SpotifyClient::togglePlayPause() {
-    if (accessToken.isEmpty() || isRateLimited()) {
-        return;
-    }
-
-    pollPlayback(); // Ensure we have the latest playback state before toggling.
-
-    if (lastIsPlaying) {
-        QNetworkRequest request(kPausePlaybackUrl);
-        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-        QNetworkReply *reply = network->put(authorizedRequest(kPausePlaybackUrl), QByteArray());
-        connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
-        return;
-    }
-
-    QNetworkRequest request(kStartPlaybackUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    QNetworkReply *reply = network->put(authorizedRequest(kStartPlaybackUrl), QByteArray());
-    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
-}
-
-void SpotifyClient::nextTrack() {
-    if (accessToken.isEmpty() || isRateLimited()) {
-        return;
-    }
-    pollPlayback();
-
-    QNetworkRequest request(kNextTrackUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    QNetworkReply *reply = network->post(authorizedRequest(kNextTrackUrl), QByteArray());
-    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
-}
-
-void SpotifyClient::prevTrack() {
-    if (accessToken.isEmpty() || isRateLimited()) {
-        return;
-    }
-    pollPlayback();
-
-    QNetworkRequest request(kPrevTrackUrl);
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    QNetworkReply *reply = network->post(authorizedRequest(kPrevTrackUrl), QByteArray());
-    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
-}
-
-void SpotifyClient::pollPlayback() {
-    if (isRateLimited()) {
-        return;
-    }
-
-    if (accessToken.isEmpty()) {
-        if (!refreshToken.isEmpty()) {
-            refreshAccessToken();
-        } else {
-            startAuth();
-        }
-        return;
-    }
-
-    QNetworkReply *reply = network->get(authorizedRequest(kPlaybackUrl));
-    connect(reply, &QNetworkReply::finished, [this, reply]() { handlePlaybackResponse(reply); });
-}
-
-void SpotifyClient::handlePlaybackResponse(QNetworkReply *reply) {
-    if (reply->error() == QNetworkReply::NoError) {
-        QByteArray data = reply->readAll();
-        if (data.isEmpty()) {
-            setVolumeControlSupported(false);
-            lastIsPlaying = false;
-            emitPlaybackState();
-            updatePollTimerInterval();
-            reply->deleteLater();
-            return; // 204 No Content / no active playback payload
-        }
-
-        QJsonDocument doc = QJsonDocument::fromJson(data);
-        if (!doc.isObject()) {
-            qDebug() << "Playback Error: invalid JSON payload";
-            reply->deleteLater();
-            return;
-        }
-
-        QJsonObject obj = doc.object();
-        QJsonObject item = obj["item"].toObject();
-        device = obj["device"].toObject();
-        if (item.isEmpty() || device.isEmpty()) {
-            setVolumeControlSupported(device.value("supports_volume").toBool(true));
-            lastIsPlaying = obj["is_playing"].toBool();
-            lastProgressMs = obj["progress_ms"].toInt(lastProgressMs);
-            emitPlaybackState();
-            reply->deleteLater();
-            return;
-        }
-
-        QString trackId = item["id"].toString();
-        QString trackName = item["name"].toString();
-
-        QString artistName;
-        QJsonArray artistsArray = item["artists"].toArray();
-        for (int i = 0; i < artistsArray.size(); ++i) {
-            if (i > 0) artistName += ", ";
-            artistName += artistsArray[i].toObject()["name"].toString();
-        }
-
-        const QJsonArray images = item["album"].toObject()["images"].toArray();
-        QString albumArtUrl;
-        if (!images.isEmpty()) {
-            albumArtUrl = images.first().toObject()["url"].toString();
-        }
-        setVolumeControlSupported(device.value("supports_volume").toBool(true));
-        int vol = device["volume_percent"].toInt();
-        int progressMs = obj["progress_ms"].toInt();
-        int durationMs = item["duration_ms"].toInt();
-        bool isPlaying = obj["is_playing"].toBool();
-        lastProgressMs = progressMs;
-        lastIsPlaying = isPlaying;
-
-        // Keep local volume changes stable for a short window until Spotify catches up.
-        int effectiveVolume = vol;
-        if (pendingVolume >= 0) {
-            if (qAbs(vol - pendingVolume) <= 1) {
-                pendingVolume = -1;
-            } else if (pendingVolumeTimer.isValid() && pendingVolumeTimer.elapsed() < kPendingVolumeGracePeriodMs) {
-                effectiveVolume = pendingVolume;
-            } else {
-                pendingVolume = -1;
-            }
-        }
-
-        currentVolume = effectiveVolume;
-        emitPlaybackState();
-        updatePollTimerInterval();
-
-        if (trackId != lastTrackId) {
-            lastTrackId = trackId;
-            emit trackChanged(currentVolume, trackName, artistName, trackId, albumArtUrl, progressMs, durationMs, isPlaying, volumeControlSupported);
-        }
-    } else {
-        const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        if (statusCode == 401) {
-            refreshAccessToken();
-        } else if (statusCode == 403 || statusCode == 404) {
-            setVolumeControlSupported(false);
-            emitPlaybackState();
-        } else if (statusCode == 429) {
-            enterRateLimitCooldown(parseRetryAfterMs(reply));
-        } else {
-            qDebug() << "Playback Error:" << reply->errorString() << "status" << statusCode;
-        }
-    }
-    reply->deleteLater();
-}
-
-void SpotifyClient::handleVolumeResponse(QNetworkReply *reply) {
-    if (reply->error() != QNetworkReply::NoError) {
-        const int statusCode = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
-        qDebug() << "Volume Error:" << reply->errorString() << "status" << statusCode;
-        if (statusCode == 403 || statusCode == 404) {
-            setVolumeControlSupported(false);
-            emitPlaybackState();
-        } else if (statusCode == 429) {
-            enterRateLimitCooldown(parseRetryAfterMs(reply));
-        }
-        pendingVolume = -1;
-    }
-    reply->deleteLater();
-}
-
-void SpotifyClient::refreshAccessToken() {
-    if (refreshToken.isEmpty()) return;
-
-    QUrlQuery body;
-    body.addQueryItem("grant_type", "refresh_token");
-    body.addQueryItem("refresh_token", refreshToken);
-    body.addQueryItem("client_id", clientId);
-    body.addQueryItem("client_secret", clientSecret);
-
-    postTokenRequest(body, [this](QNetworkReply *reply) {
-        if (reply->error() == QNetworkReply::NoError) {
-            QJsonDocument doc = QJsonDocument::fromJson(reply->readAll());
-            accessToken = doc.object()["access_token"].toString();
-            saveTokens();
-            updatePollTimerInterval();
-        }
-        reply->deleteLater();
-    });
-}
-
-void SpotifyClient::saveTokens() {
-    QSettings settings("SpotifyVol", "SpotifyVol");
-    settings.setValue("accessToken", accessToken);
-    settings.setValue("refreshToken", refreshToken);
-}
-
-void SpotifyClient::loadTokens() {
-    QSettings settings("SpotifyVol", "SpotifyVol");
-    accessToken = settings.value("accessToken").toString();
-    refreshToken = settings.value("refreshToken").toString();
+    rateLimitRetryAfterMs = normalized;
+    rateLimitTimer->start(normalized);
+    emitRateLimitState(normalized);
 }

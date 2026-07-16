@@ -1,4 +1,5 @@
 #include "app_settings.h"
+#include <QRandomGenerator>
 
 namespace {
 constexpr auto kOverlayGroup = "overlay";
@@ -38,6 +39,34 @@ void saveOverlaySettings(const OverlaySettings &config) {
     settings.setValue("overlayWidth", config.overlayWidth);
     settings.setValue("hideDurationMs", config.hideDurationMs);
     settings.endGroup();
+}
+
+QString loadRefreshToken() {
+    QSettings settings("SpotifyVol", "SpotifyVol");
+    return settings.value("RefreshToken").toString();
+}
+
+void saveRefreshToken(const QString &token) {
+    QSettings settings("SpotifyVol", "SpotifyVol");
+    settings.setValue("RefreshToken", token);
+}
+
+void clearRefreshToken() {
+    QSettings settings("SpotifyVol", "SpotifyVol");
+    settings.remove("RefreshToken");
+}
+
+QString loadOrCreateDeviceId() {
+    QSettings settings("SpotifyVol", "SpotifyVol");
+    QString deviceId = settings.value("DeviceId").toString();
+    if (deviceId.length() != 40) {
+        deviceId.clear();
+        for (int i = 0; i < 20; ++i) {
+            deviceId += QString("%1").arg(QRandomGenerator::global()->bounded(256), 2, 16, QChar('0'));
+        }
+        settings.setValue("DeviceId", deviceId);
+    }
+    return deviceId;
 }
 
 KeybindSettings loadKeybindSettings() {

@@ -15,17 +15,18 @@ class QSpinBox;
 class QTabWidget;
 class QComboBox;
 
+class QPlainTextEdit;
+
 class SettingsDialog : public QDialog {
     Q_OBJECT
 public:
     explicit SettingsDialog(QWidget *parent = nullptr);
 
-    void setCredentialsConfigured(bool configured);
     void setAuthenticated(bool authenticated);
-    void setRedirectUri(const QString &redirectUri);
     void setRateLimitStatusText(const QString &text);
     void setCurrentPollingIntervalText(const QString &text);
     void setTimeTillNextPollText(const QString &text);
+    void appendLog(const QString &text);
     #ifdef _WIN32
     void setAudioDuckerSettings(const AudioDuckerSettings &settings);
     AudioDuckerSettings audioDuckerSettings() const;
@@ -36,6 +37,9 @@ public:
     OverlaySettings overlaySettings() const;
     void setKeybindSettings(const KeybindSettings &settings);
     KeybindSettings keybindSettings() const;
+
+    // Show the device-flow verification URL and user code while auth is pending.
+    void showAuthorizationPrompt(const QString &url, const QString &code);
 
 signals:
     void connectSpotifyRequested();
@@ -56,8 +60,6 @@ private:
     void updateColorPreview(QLineEdit *edit, QLabel *preview);
 
     QLabel *connectionValueLabel;
-    QLabel *credentialsValueLabel;
-    QLabel *redirectUriValueLabel;
     QLabel *rateLimitValueLabel;
     QLabel *currentPollingIntervalLabel;
     QLabel *timeTillNextPollLabel;
@@ -99,11 +101,12 @@ private:
     QCheckBox *useShiftFineAdjustCheck;
     QLineEdit *mainKeyEdit;
 
-    bool credentialsConfigured = false;
     bool authenticated = false;
     QString rateLimitStatusText = "Not rate limited";
     QString currentPollingIntervalText = "N/A";
     QString timeTillNextPollText = "N/A";
+
+    QPlainTextEdit *logViewer = nullptr;
 };
 
 #endif // SETTINGS_DIALOG_H

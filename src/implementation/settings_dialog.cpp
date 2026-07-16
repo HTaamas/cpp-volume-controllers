@@ -14,6 +14,7 @@
 #include <QSpinBox>
 #include <QTabWidget>
 #include <QVBoxLayout>
+#include <QPlainTextEdit>
 
 namespace {
 QWidget *createRow(const QString &labelText, QWidget *fieldWidget, QWidget *parent = nullptr) {
@@ -70,8 +71,6 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     spotifyLayout->addWidget(spotifyTitle);
 
     connectionValueLabel = new QLabel(this);
-    credentialsValueLabel = new QLabel(this);
-    redirectUriValueLabel = new QLabel(this);
     rateLimitValueLabel = new QLabel(this);
     currentPollingIntervalLabel = new QLabel(this);
     timeTillNextPollLabel = new QLabel(this);
@@ -79,8 +78,6 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     helpTextLabel->setWordWrap(true);
 
     spotifyLayout->addWidget(createRow("Status", connectionValueLabel, spotifyTab));
-    spotifyLayout->addWidget(createRow("Credentials", credentialsValueLabel, spotifyTab));
-    spotifyLayout->addWidget(createRow("Redirect URI", redirectUriValueLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("API rate limit", rateLimitValueLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("Current polling interval", currentPollingIntervalLabel, spotifyTab));
     spotifyLayout->addWidget(createRow("Time till next poll", timeTillNextPollLabel, spotifyTab));
@@ -89,7 +86,13 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     connectButton = new QPushButton(this);
     connect(connectButton, &QPushButton::clicked, this, &SettingsDialog::connectSpotifyRequested);
     spotifyLayout->addWidget(connectButton, 0, Qt::AlignLeft);
-    spotifyLayout->addStretch();
+
+    logViewer = new QPlainTextEdit(spotifyTab);
+    logViewer->setReadOnly(true);
+    logViewer->setFixedHeight(140);
+    logViewer->setStyleSheet("QPlainTextEdit { background-color: #2b2b2b; color: #dcdcdc; font-family: monospace; font-size: 10px; border: 1px solid #3c3c3c; border-radius: 4px; padding: 4px; }");
+    spotifyLayout->addWidget(new QLabel("WebSocket Connection Logs:", spotifyTab));
+    spotifyLayout->addWidget(logViewer);
     tabs->addTab(spotifyTab, "Spotify");
 
     #ifdef _WIN32
@@ -188,7 +191,7 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     fineStepSpin->setRange(1, 25);
     mainKeyEdit = new QLineEdit(this);
     useShiftFineAdjustCheck = new QCheckBox("Use Shift for fine adjustment", this);
-    QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x41 for 'A'. On macOS, it is translated to the matching mac key code.\nModifier keys (requires double tap): Shift=Skip, Ctrl=Previous", this);
+    QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x14 for Caps Lock (default) or 0x41 for 'A'. On macOS it is translated to the matching mac key (Caps Lock is supported).\nHold Shift with the main key to Skip, or Ctrl for Previous.", this);
     mainKeyHint->setWordWrap(true);
     #ifdef _WIN32
     QLabel *duckingToggleHint = new QLabel("Global ducking toggle: Alt+D", this);
@@ -220,18 +223,19 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     refreshUi();
 }
 
-void SettingsDialog::setCredentialsConfigured(bool configured) {
-    credentialsConfigured = configured;
-    refreshUi();
+void SettingsDialog::showAuthorizationPrompt(const QString &url, const QString &code) {
+    connectionValueLabel->setText("Waiting for authorization...");
+    helpTextLabel->setText(
+        QString("<b>Authorize SpotifyVol</b><br>"
+                "A browser window was opened to <a href=\"%1\">%1</a>.<br>"
+                "If it didn't open, visit that link and confirm the code <b>%2</b>.")
+            .arg(url, code));
+    helpTextLabel->setOpenExternalLinks(true);
 }
 
 void SettingsDialog::setAuthenticated(bool isAuthenticated) {
     authenticated = isAuthenticated;
     refreshUi();
-}
-
-void SettingsDialog::setRedirectUri(const QString &redirectUri) {
-    redirectUriValueLabel->setText(redirectUri);
 }
 
 void SettingsDialog::setRateLimitStatusText(const QString &text) {
@@ -245,6 +249,12 @@ void SettingsDialog::setCurrentPollingIntervalText(const QString &text) {
 
 void SettingsDialog::setTimeTillNextPollText(const QString &text) {
     timeTillNextPollLabel->setText(text);
+}
+
+void SettingsDialog::appendLog(const QString &text) {
+    if (logViewer) {
+        logViewer->appendPlainText(text);
+    }
 }
 
 #ifdef _WIN32
@@ -403,23 +413,19 @@ void SettingsDialog::updateColorPreview(QLineEdit *edit, QLabel *preview) {
 }
 
 void SettingsDialog::refreshUi() {
-    credentialsValueLabel->setText(credentialsConfigured ? "Configured" : "Missing");
     connectionValueLabel->setText(authenticated ? "Connected" : "Not connected");
     rateLimitValueLabel->setText(rateLimitStatusText);
     currentPollingIntervalLabel->setText(currentPollingIntervalText);
     timeTillNextPollLabel->setText(timeTillNextPollText);
 
-
-    if (!credentialsConfigured) {
-        connectButton->setEnabled(false);
-        connectButton->setText("Spotify credentials required");
-        helpTextLabel->setText("Spotify client credentials are missing from the build configuration, so authorization cannot start yet.");
-        return;
-    }
-
     connectButton->setEnabled(true);
     connectButton->setText(authenticated ? "Reconnect Spotify" : "Connect Spotify");
-    helpTextLabel->setText(authenticated
-        ? "Your Spotify session is available. You can reconnect if you want to refresh authorization manually."
-        : "Open the Spotify authorization flow in your browser to link this app to your account.");
+
+    if (!authenticated) {
+        helpTextLabel->setText(
+            "Click <b>Connect Spotify</b> to authorize. Your browser will open a Spotify "
+            "login page — approve the request, and playback state will start streaming in "
+            "realtime. No password or cookie is ever handled by this app.");
+        helpTextLabel->setOpenExternalLinks(true);
+    }
 }

@@ -20,7 +20,7 @@ struct KeybindSettings {
     int coarseStep = 5;
     int fineStep = 1;
     bool useShiftForFineAdjust = true;
-    QString mainKey = "0xFF";
+    QString mainKey = "0x14"; // VK_CAPITAL (Caps Lock)
 };
 
 namespace AppSettings {
@@ -29,6 +29,14 @@ void saveOverlaySettings(const OverlaySettings &settings);
 
 KeybindSettings loadKeybindSettings();
 void saveKeybindSettings(const KeybindSettings &settings);
+
+// Persisted refresh token from the OAuth2 device flow (used for silent re-auth).
+QString loadRefreshToken();
+void saveRefreshToken(const QString &token);
+void clearRefreshToken();
+
+// Stable per-install Spotify Connect device id (40 hex chars). Generated once.
+QString loadOrCreateDeviceId();
 }
 
 #endif // APP_SETTINGS_H

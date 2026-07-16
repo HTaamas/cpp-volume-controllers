@@ -20,6 +20,19 @@ On first launch — or any time from **Settings → Connect Spotify** — your b
 
 The app never handles your password or any cookie. Once connected it talks only to Spotify's realtime Connect backend (the same protocol the official clients use), streaming playback state over a WebSocket rather than polling the public Web API — so it isn't subject to Web-API rate limits.
 
+## Project Structure
+
+```
+src/
+  main.cpp        - entry point and signal wiring between modules
+  spotify/        - Spotify Connect client (auth, WebSocket state, playback commands)
+  ui/             - everything visual: OSD overlay, tray icon, settings dialog
+  input/          - global hotkey capture (per-platform keyboard hooks)
+  settings/       - persistent app settings (overlay theme, keybinds)
+  platform/       - miscellaneous platform glue (macOS app behavior)
+  proto/          - Spotify Connect protobuf definitions
+```
+
 ## Building from Source
 
 This project is built using CMake. You need Qt 6 (Widgets, Network, Gui, WebSockets), Protobuf (`protoc` plus libprotobuf), zlib, CMake, a C++17 compiler, and — on Linux — X11 development headers.
@@ -30,20 +43,23 @@ These instructions assume a MinGW-based Qt installation.
 
 ```powershell
 # 1. Add MinGW to your PATH for this session
-$env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
+$env:Path = "D:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 
 # 2. Configure the project
 cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Release `
-  -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
-  -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
+  -DCMAKE_PREFIX_PATH=D:/Qt/6.11.1/mingw_64 `
+  -DCMAKE_C_COMPILER=D:/Qt/Tools/mingw1310_64/bin/gcc.exe `
+  -DCMAKE_CXX_COMPILER=D:/Qt/Tools/mingw1310_64/bin/g++.exe
 
 # 3. Build the executable
 cmake --build build
 
 # 4. Deploy Qt runtime DLLs
-C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
+D:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
 ```
+
+Adjust the `D:\Qt` paths if your Qt installation lives elsewhere.
 
 The final executable will be at `build/SpotifyVol.exe`.
 

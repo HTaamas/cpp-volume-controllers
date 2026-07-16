@@ -2,7 +2,7 @@
 #define VOLUME_HANDLER_H
 
 #include <QObject>
-#include "implementation/app_settings.h"
+#include "settings/app_settings.h"
 
 #ifdef _WIN32
 #include <windows.h>

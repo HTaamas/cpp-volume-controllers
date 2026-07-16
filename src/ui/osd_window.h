@@ -2,7 +2,7 @@
 #define OSD_WINDOW_H
 
 #include <QWidget>
-#include "implementation/app_settings.h"
+#include "settings/app_settings.h"
 #include <QLabel>
 #include <QProgressBar>
 #include <QTimer>

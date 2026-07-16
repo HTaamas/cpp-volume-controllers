@@ -1,5 +1,5 @@
 #include "spotify_client.h"
-#include "implementation/app_settings.h"
+#include "settings/app_settings.h"
 
 #include <QWebSocket>
 #include <QSslError>

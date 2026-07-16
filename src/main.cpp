@@ -1,10 +1,10 @@
 #include <QApplication>
-#include "spotify_client.h"
-#include "osd_window.h"
-#include "tray_manager.h"
-#include "volume_handler.h"
-#include "implementation/app_settings.h"
-#include "implementation/settings_dialog.h"
+#include "spotify/spotify_client.h"
+#include "ui/osd_window.h"
+#include "ui/tray_manager.h"
+#include "input/volume_handler.h"
+#include "settings/app_settings.h"
+#include "ui/settings_dialog.h"
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QIcon>

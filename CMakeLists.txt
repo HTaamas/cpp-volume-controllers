@@ -111,23 +111,23 @@ set(WINDOWS_MIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/runtime-min")
 
 set(SOURCES
     src/main.cpp
-    src/spotify_client.cpp
-    src/spotify_client.h
-    src/osd_window.cpp
-    src/osd_window.h
-    src/tray_manager.cpp
-    src/tray_manager.h
-    src/volume_handler.h
-    src/volume_handler.cpp
-    src/implementation/app_settings.h
-    src/implementation/app_settings.cpp
-    src/implementation/settings_dialog.h
-    src/implementation/settings_dialog.cpp
+    src/spotify/spotify_client.cpp
+    src/spotify/spotify_client.h
+    src/ui/osd_window.cpp
+    src/ui/osd_window.h
+    src/ui/tray_manager.cpp
+    src/ui/tray_manager.h
+    src/ui/settings_dialog.h
+    src/ui/settings_dialog.cpp
+    src/input/volume_handler.h
+    src/input/volume_handler.cpp
+    src/settings/app_settings.h
+    src/settings/app_settings.cpp
     ${PROTO_SRCS}
 )
 
 if(WIN32)
-    list(APPEND SOURCES src/volume_handler_win.cpp)
+    list(APPEND SOURCES src/input/volume_handler_win.cpp)
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows/app_icon.rc.in"
         "${APP_ICON_WINDOWS_RC}"
@@ -137,9 +137,9 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    list(APPEND SOURCES src/app_behavior_mac.mm)
-    list(APPEND SOURCES src/volume_handler_mac.mm)
-    list(APPEND SOURCES src/osd_window_mac.mm)
+    list(APPEND SOURCES src/platform/app_behavior_mac.mm)
+    list(APPEND SOURCES src/input/volume_handler_mac.mm)
+    list(APPEND SOURCES src/ui/osd_window_mac.mm)
     list(APPEND SOURCES "${APP_ICON_ASSET}")
 
     # Build a real .icns from the PNG so the bundle shows an icon in Finder, the

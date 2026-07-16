@@ -1,5 +1,5 @@
 #include "settings_dialog.h"
-#include <spotify_client.h>
+#include "spotify/spotify_client.h"
 
 #include <QCheckBox>
 #include <QColor>

@@ -2,7 +2,7 @@
 #define SETTINGS_DIALOG_H
 
 #include <QDialog>
-#include "app_settings.h"
+#include "settings/app_settings.h"
 
 class QLabel;
 class QPushButton;

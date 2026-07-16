@@ -1,11 +1,10 @@
 #include <QApplication>
-#include "spotify_client.h"
-#include "osd_window.h"
-#include "tray_manager.h"
-#include "volume_handler.h"
-#include "implementation/audio_ducker.h"
-#include "implementation/app_settings.h"
-#include "implementation/settings_dialog.h"
+#include "spotify/spotify_client.h"
+#include "ui/osd_window.h"
+#include "ui/tray_manager.h"
+#include "input/volume_handler.h"
+#include "settings/app_settings.h"
+#include "ui/settings_dialog.h"
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QIcon>
@@ -14,7 +13,6 @@
 #include <exception>
 #include <QDebug>
 #include <QElapsedTimer>
-#include <QSignalBlocker>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -26,16 +24,6 @@ void configureMacApplicationBehavior();
 #endif
 
 namespace {
-QString formatDurationText(int ms) {
-    const int totalSeconds = qMax(0, ms) / 1000;
-    const int minutes = totalSeconds / 60;
-    const int seconds = totalSeconds % 60;
-    if (minutes > 0) {
-        return QString("%1m %2s").arg(minutes).arg(seconds);
-    }
-    return QString("%1s").arg(seconds);
-}
-
 QString bundledAppIconPath() {
 #ifdef __APPLE__
     return QDir(QCoreApplication::applicationDirPath()).filePath("../Resources/app_icon.png");
@@ -141,15 +129,6 @@ int main(int argc, char *argv[]) {
     TrayManager tray;
     VolumeHandler volHandler;
     SettingsDialog settingsDialog;
-    AudioDucker audioDucker;
-
-    settingsDialog.setCredentialsConfigured(spotify.hasCredentialsConfigured());
-    settingsDialog.setAuthenticated(spotify.hasStoredSession());
-    settingsDialog.setRedirectUri(spotify.authRedirectUri());
-    #ifdef _WIN32
-    settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
-    settingsDialog.setAudioDuckerSettings(audioDucker.settings());
-    #endif
     settingsDialog.setOverlaySettings(AppSettings::loadOverlaySettings());
     settingsDialog.setKeybindSettings(AppSettings::loadKeybindSettings());
     osd.applyOverlaySettings(settingsDialog.overlaySettings());
@@ -189,93 +168,38 @@ int main(int argc, char *argv[]) {
         return estimated;
     };
 
-    auto updateDynamicSettingsInfo = [&]() {
-        if (!settingsDialog.isVisible()) {
-            return;
-        }
-        const int pollInterval = spotify.getPollIntervalMs();
-        const QString pollText = QString("%1 ms").arg(pollInterval);
-        settingsDialog.setCurrentPollingIntervalText(pollText);
-
-        const int remainingMs = spotify.pollTimer->isActive() ? spotify.pollTimer->remainingTime() : spotify.pollTimer->interval();
-        const QString timeTillNextPollText = formatDurationText(remainingMs);
-        settingsDialog.setTimeTillNextPollText(timeTillNextPollText);
-    };
-
-    auto updateRateLimitText = [&](int retryAfterMs) {
-        if (retryAfterMs > 0) {
-            const QString text = QString("Rate limited for %1").arg(formatDurationText(retryAfterMs));
-            settingsDialog.setRateLimitStatusText(text);
-        } else {
-            settingsDialog.setRateLimitStatusText("Not rate limited");
-        }
-    };
-
-    QTimer *rateLimitCountdownTimer = new QTimer(&app);
-    rateLimitCountdownTimer->setInterval(1000);
-    QObject::connect(rateLimitCountdownTimer, &QTimer::timeout, [&]() {
-        const int remainingMs = spotify.rateLimitRemainingMs();
-        if (remainingMs <= 0 || !spotify.isRateLimited()) {
-            rateLimitCountdownTimer->stop();
-            updateRateLimitText(0);
-            return;
-        }
-
-        updateRateLimitText(remainingMs);
-        osd.updateRateLimitMessage(remainingMs);
-    });
-
     QObject::connect(&spotify, &SpotifyClient::trackChanged, [&](int volume, const QString &track, const QString &artist, const QString &trackId, const QString &albumArtUrl, int progressMs, int durationMs, bool isPlaying, bool volumeControlSupported) {
         currentVolume = volume;
         currentTrack = track;
         currentArtist = artist;
         currentArtUrl = albumArtUrl;
         currentVolumeControlSupported = volumeControlSupported;
-        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         updateProgressBaseline(progressMs, isPlaying);
         currentDuration = durationMs;
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
         tray.updateTrackInfo(currentTrack, currentArtist);
     });
 
-    QObject::connect(&spotify, &SpotifyClient::authComplete, [&]() {
-        settingsDialog.setAuthenticated(true);
-    });
 
-    QObject::connect(&spotify, &SpotifyClient::rateLimitChanged, [&](int retryAfterMs) {
-        updateRateLimitText(retryAfterMs);
-
-        if (retryAfterMs > 0) {
-            osd.showRateLimitMessage(retryAfterMs);
-            osd.updateRateLimitMessage(retryAfterMs);
-            if (!rateLimitCountdownTimer->isActive()) {
-                rateLimitCountdownTimer->start();
-            }
-        } else {
-            rateLimitCountdownTimer->stop();
-        }
-    });
+    QObject::connect(&spotify, &SpotifyClient::debugLog, &settingsDialog, &SettingsDialog::appendLog);
 
     QObject::connect(&tray, &TrayManager::settingsRequested, [&]() {
-        #ifdef _WIN32
-        settingsDialog.setAvailableAudioDevices(AudioDucker::availableOutputDevices());
-        settingsDialog.setAudioDuckerSettings(audioDucker.settings());
-        updateDynamicSettingsInfo();
-        #endif
         settingsDialog.show();
         settingsDialog.raise();
         settingsDialog.activateWindow();
     });
 
     QObject::connect(&settingsDialog, &SettingsDialog::connectSpotifyRequested, [&]() {
-        spotify.startAuth();
+        spotify.startAuthorization();
     });
 
-    #ifdef _WIN32
-    QObject::connect(&settingsDialog, &SettingsDialog::audioDuckerSettingsChanged, [&]() {
-        audioDucker.setSettings(settingsDialog.audioDuckerSettings());
+    QObject::connect(&spotify, &SpotifyClient::authorizationPending, [&](const QString &url, const QString &code) {
+        settingsDialog.showAuthorizationPrompt(url, code);
     });
-    #endif
+
+    QObject::connect(&spotify, &SpotifyClient::authComplete, [&]() {
+        settingsDialog.setAuthenticated(true);
+    });
 
     QObject::connect(&settingsDialog, &SettingsDialog::overlaySettingsChanged, [&]() {
         const OverlaySettings settings = settingsDialog.overlaySettings();
@@ -289,35 +213,16 @@ int main(int argc, char *argv[]) {
         volHandler.applyKeybindSettings(settings);
     });
 
-    #ifdef _WIN32
-    QObject::connect(&audioDucker, &AudioDucker::monitorStateChanged, [&](const QString &statusText) {
-        settingsDialog.setAudioDuckerStatusText(statusText);
-    });
-
-    audioDucker.setSettings(settingsDialog.audioDuckerSettings());
-    #endif
-
     QObject::connect(&spotify, &SpotifyClient::stateSynced, [&](int volume, int progressMs, bool isPlaying, bool volumeControlSupported) {
         const bool playbackStateChanged = (isPlaying != currentIsPlaying);
         currentVolume = volume;
         currentVolumeControlSupported = volumeControlSupported;
-        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         updateProgressBaseline(progressMs, isPlaying);
         osd.syncProgress(progressMs, isPlaying, volumeControlSupported);
 
         if (playbackStateChanged) {
             osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, progressMs, currentDuration, currentIsPlaying, currentVolumeControlSupported);
         }
-    });
-
-    QObject::connect(&audioDucker, &AudioDucker::volumeAdjustmentRequested, [&](int targetVolume) {
-        if (!spotify.setVolume(targetVolume)) {
-            return;
-        }
-
-        currentVolume = targetVolume;
-        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
-        osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
     QObject::connect(&volHandler, &VolumeHandler::volumeChanged, [&](int delta) {
@@ -330,7 +235,6 @@ int main(int argc, char *argv[]) {
         }
 
         currentVolume = requestedVolume;
-        audioDucker.updateSpotifyState(currentVolume, currentVolumeControlSupported);
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
@@ -352,31 +256,9 @@ int main(int argc, char *argv[]) {
         osd.showVolume(currentVolume, currentTrack, currentArtist, currentArtUrl, estimatedProgressNow(), currentDuration, currentIsPlaying, currentVolumeControlSupported);
     });
 
-    #ifdef _WIN32
-    QObject::connect(&volHandler, &VolumeHandler::toggleDuckingRequested, [&]() {
-        AudioDuckerSettings settings = audioDucker.settings();
-        settings.enabled = !settings.enabled;
-        audioDucker.setSettings(settings);
-
-        const QSignalBlocker blocker(&settingsDialog);
-        settingsDialog.setAudioDuckerSettings(settings);
-    });
-    #endif
-
-    // Check if we need to auth
     QTimer::singleShot(1000, [&spotify]() {
-        spotify.pollPlayback();
-        // If we don't have a token, start auth flow
-        // In this simple rewrite, we might want to check the token state properly.
-        // spotify.startAuth();
+        spotify.resumeSession();
     });
-
-    QTimer *settingsUpdateTimer = new QTimer(&app);
-    settingsUpdateTimer->setInterval(1000);
-    QObject::connect(settingsUpdateTimer, &QTimer::timeout, [&]() {
-        updateDynamicSettingsInfo();
-    });
-    settingsUpdateTimer->start();
 
     try {
         return app.exec();

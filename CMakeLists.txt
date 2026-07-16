@@ -13,21 +13,92 @@ if(APPLE)
     set(CMAKE_OBJCXX_STANDARD_REQUIRED ON)
 endif()
 
-# Include environment parsing
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-include(ParseEnv)
-
-# Generate config header from .env file
-set(ENV_FILE "${CMAKE_CURRENT_SOURCE_DIR}/.env")
-set(CONFIG_HEADER "${CMAKE_CURRENT_BINARY_DIR}/include/app_config.h")
-set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ENV_FILE}")
-file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/include")
-generate_config_header("${ENV_FILE}" "${CONFIG_HEADER}")
-
-find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Network Gui WebSockets)
 if(UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)
 endif()
+
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PC_PROTOBUF QUIET protobuf)
+endif()
+
+if(PC_PROTOBUF_FOUND)
+    set(PROTOBUF_INCLUDE_DIRS ${PC_PROTOBUF_INCLUDE_DIRS})
+    set(PROTOBUF_LDFLAGS ${PC_PROTOBUF_LDFLAGS})
+    set(PROTOC_EXECUTABLE protoc)
+else()
+    include(FetchContent)
+    message(STATUS "Protobuf not found via pkg-config. Fetching from GitHub...")
+    FetchContent_Declare(
+        protobuf
+        GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+        GIT_TAG        v21.12
+        SOURCE_SUBDIR  cmake
+    )
+    set(protobuf_BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
+    set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "Build protoc" FORCE)
+    set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "Build static" FORCE)
+    set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+    set(protobuf_WITH_ZLIB OFF CACHE BOOL "Disable ZLIB in protobuf" FORCE)
+    FetchContent_MakeAvailable(protobuf)
+
+    set(PROTOBUF_LINK_TARGET libprotobuf)
+    set(PROTOC_EXECUTABLE protoc)
+    set(PROTOBUF_INCLUDE_DIRS "${protobuf_SOURCE_DIR}/src")
+endif()
+find_package(ZLIB QUIET)
+if(NOT ZLIB_FOUND)
+    message(STATUS "ZLIB not found. Fetching from GitHub...")
+    include(FetchContent)
+    FetchContent_Declare(
+        ZLIB
+        GIT_REPOSITORY https://github.com/madler/zlib.git
+        GIT_TAG        v1.3.1
+    )
+    FetchContent_MakeAvailable(ZLIB)
+    if(TARGET zlibstatic)
+        add_library(ZLIB::ZLIB ALIAS zlibstatic)
+    elseif(TARGET zlib)
+        add_library(ZLIB::ZLIB ALIAS zlib)
+    endif()
+    set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
+endif()
+set(PROTO_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/proto")
+set(PROTO_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto_gen")
+file(MAKE_DIRECTORY ${PROTO_BIN_DIR})
+file(GLOB_RECURSE PROTO_FILES "${PROTO_SRC_DIR}/*.proto")
+
+set(PROTO_SRCS)
+set(PROTO_HDRS)
+
+set(PROTOC_INCLUDES "-I${PROTO_SRC_DIR}")
+if(protobuf_SOURCE_DIR)
+    list(APPEND PROTOC_INCLUDES "-I${protobuf_SOURCE_DIR}/src")
+endif()
+
+foreach(PROTO_FILE IN LISTS PROTO_FILES)
+    file(RELATIVE_PATH REL_PROTO_FILE ${PROTO_SRC_DIR} ${PROTO_FILE})
+    get_filename_component(REL_DIR ${REL_PROTO_FILE} DIRECTORY)
+    get_filename_component(BASENAME ${REL_PROTO_FILE} NAME_WE)
+    
+    set(GENERATED_CC "${PROTO_BIN_DIR}/${REL_DIR}/${BASENAME}.pb.cc")
+    set(GENERATED_H "${PROTO_BIN_DIR}/${REL_DIR}/${BASENAME}.pb.h")
+    
+    list(APPEND PROTO_SRCS ${GENERATED_CC})
+    list(APPEND PROTO_HDRS ${GENERATED_H})
+    
+    add_custom_command(
+        OUTPUT ${GENERATED_CC} ${GENERATED_H}
+        COMMAND ${PROTOC_EXECUTABLE}
+        ARGS --cpp_out=${PROTO_BIN_DIR} ${PROTOC_INCLUDES} ${PROTO_FILE}
+        DEPENDS ${PROTO_FILE}
+        COMMENT "Compiling ${REL_PROTO_FILE}..."
+        VERBATIM
+    )
+endforeach()
+set_source_files_properties(${PROTO_SRCS} ${PROTO_HDRS} PROPERTIES GENERATED TRUE)
+
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
@@ -40,24 +111,23 @@ set(WINDOWS_MIN_RUNTIME_DIR "${CMAKE_CURRENT_BINARY_DIR}/runtime-min")
 
 set(SOURCES
     src/main.cpp
-    src/spotify_client.cpp
-    src/spotify_client.h
-    src/osd_window.cpp
-    src/osd_window.h
-    src/tray_manager.cpp
-    src/tray_manager.h
-    src/volume_handler.h
-    src/volume_handler.cpp
-    src/implementation/audio_ducker.h
-    src/implementation/audio_ducker.cpp
-    src/implementation/app_settings.h
-    src/implementation/app_settings.cpp
-    src/implementation/settings_dialog.h
-    src/implementation/settings_dialog.cpp
+    src/spotify/spotify_client.cpp
+    src/spotify/spotify_client.h
+    src/ui/osd_window.cpp
+    src/ui/osd_window.h
+    src/ui/tray_manager.cpp
+    src/ui/tray_manager.h
+    src/ui/settings_dialog.h
+    src/ui/settings_dialog.cpp
+    src/input/volume_handler.h
+    src/input/volume_handler.cpp
+    src/settings/app_settings.h
+    src/settings/app_settings.cpp
+    ${PROTO_SRCS}
 )
 
 if(WIN32)
-    list(APPEND SOURCES src/volume_handler_win.cpp)
+    list(APPEND SOURCES src/input/volume_handler_win.cpp)
     configure_file(
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/windows/app_icon.rc.in"
         "${APP_ICON_WINDOWS_RC}"
@@ -67,25 +137,62 @@ if(WIN32)
 endif()
 
 if(APPLE)
-    list(APPEND SOURCES src/app_behavior_mac.mm)
-    list(APPEND SOURCES src/volume_handler_mac.mm)
-    list(APPEND SOURCES src/osd_window_mac.mm)
+    list(APPEND SOURCES src/platform/app_behavior_mac.mm)
+    list(APPEND SOURCES src/input/volume_handler_mac.mm)
+    list(APPEND SOURCES src/ui/osd_window_mac.mm)
     list(APPEND SOURCES "${APP_ICON_ASSET}")
+
+    # Build a real .icns from the PNG so the bundle shows an icon in Finder, the
+    # Dock and the app switcher. (A 1024px square master gives the crispest icon.)
+    set(APP_ICNS_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/app_icon.original.png")
+    if(NOT EXISTS "${APP_ICNS_SOURCE}")
+        set(APP_ICNS_SOURCE "${APP_ICON_ASSET}")
+    endif()
+    set(APP_ICNS "${CMAKE_CURRENT_BINARY_DIR}/app_icon.icns")
+    set(APP_ICONSET_DIR "${CMAKE_CURRENT_BINARY_DIR}/app_icon.iconset")
+    add_custom_command(
+        OUTPUT "${APP_ICNS}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${APP_ICONSET_DIR}"
+        COMMAND sips -z 16 16     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_16x16.png"
+        COMMAND sips -z 32 32     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_16x16@2x.png"
+        COMMAND sips -z 32 32     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_32x32.png"
+        COMMAND sips -z 64 64     "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_32x32@2x.png"
+        COMMAND sips -z 128 128   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_128x128.png"
+        COMMAND sips -z 256 256   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_128x128@2x.png"
+        COMMAND sips -z 256 256   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_256x256.png"
+        COMMAND sips -z 512 512   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_256x256@2x.png"
+        COMMAND sips -z 512 512   "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_512x512.png"
+        COMMAND sips -z 1024 1024 "${APP_ICNS_SOURCE}" --out "${APP_ICONSET_DIR}/icon_512x512@2x.png"
+        COMMAND iconutil -c icns "${APP_ICONSET_DIR}" -o "${APP_ICNS}"
+        DEPENDS "${APP_ICNS_SOURCE}"
+        COMMENT "Generating macOS app icon (.icns)"
+        VERBATIM
+    )
+    set_source_files_properties("${APP_ICNS}" PROPERTIES GENERATED TRUE MACOSX_PACKAGE_LOCATION "Resources")
+    list(APPEND SOURCES "${APP_ICNS}")
 endif()
 
 add_executable(${PROJECT_NAME} ${SOURCES})
 
 # Add generated config header include directory
 target_include_directories(${PROJECT_NAME} PRIVATE
-    "${CMAKE_CURRENT_BINARY_DIR}/include"
+    "${PROTO_BIN_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    ${PROTOBUF_INCLUDE_DIRS}
+    ${ZLIB_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    Qt6::Widgets 
-    Qt6::Network 
+    Qt6::Widgets
+    Qt6::Network
     Qt6::Gui
+    Qt6::WebSockets
+    ZLIB::ZLIB
+    ${PROTOBUF_LINK_TARGET}
 )
+if(PROTOBUF_LDFLAGS)
+    target_link_options(${PROJECT_NAME} PRIVATE ${PROTOBUF_LDFLAGS})
+endif()
 
 if(UNIX AND NOT APPLE)
     target_include_directories(${PROJECT_NAME} PRIVATE ${X11_INCLUDE_DIR})
@@ -195,20 +302,13 @@ endif()
 
 if(APPLE)
     set_source_files_properties("${APP_ICON_ASSET}" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
-    add_executable(set_bundle_icon_mac src/set_bundle_icon_mac.mm)
-    target_link_libraries(set_bundle_icon_mac PRIVATE "-framework AppKit")
-    add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-        COMMAND $<TARGET_FILE:set_bundle_icon_mac>
-            "$<TARGET_BUNDLE_DIR:${PROJECT_NAME}>"
-            "${APP_ICON_ASSET}"
-        VERBATIM
-    )
     set_target_properties(${PROJECT_NAME} PROPERTIES
         MACOSX_BUNDLE TRUE
         MACOSX_BUNDLE_BUNDLE_NAME "SpotifyVol"
         MACOSX_BUNDLE_GUI_IDENTIFIER "com.spotifyvol.app"
         MACOSX_BUNDLE_BUNDLE_VERSION "1.0.0"
         MACOSX_BUNDLE_SHORT_VERSION_STRING "1.0.0"
+        MACOSX_BUNDLE_ICON_FILE "app_icon.icns"
         MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/cmake/macos/Info.plist.in"
     )
 

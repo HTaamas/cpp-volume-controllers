@@ -3,7 +3,6 @@
 
 #include <QCheckBox>
 #include <QColor>
-#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QFrame>
@@ -95,55 +94,6 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     spotifyLayout->addWidget(logViewer);
     tabs->addTab(spotifyTab, "Spotify");
 
-    #ifdef _WIN32
-    QWidget *duckingTab = new QWidget(this);
-    QVBoxLayout *duckingLayout = new QVBoxLayout(duckingTab);
-    duckingLayout->setContentsMargins(12, 12, 12, 12);
-    duckingLayout->setSpacing(12);
-
-    audioDuckerEnabledCheck = new QCheckBox("Enable audio ducking", this);
-    duckingLayout->addWidget(audioDuckerEnabledCheck);
-
-    monitorEntireOutputCheck = new QCheckBox("Watch the whole output device instead of one app", this);
-    duckingLayout->addWidget(monitorEntireOutputCheck);
-
-    instantDuckCheck = new QCheckBox("Drop volume instantly when ducking starts", this);
-    duckingLayout->addWidget(instantDuckCheck);
-
-    monitorDeviceCombo = new QComboBox(this);
-    duckingLayout->addWidget(createRow("Output device", monitorDeviceCombo, duckingTab));
-
-    monitorProcessEdit = new QLineEdit(this);
-    monitorProcessEdit->setPlaceholderText("Discord.exe");
-    duckingLayout->addWidget(createRow("Monitored app", monitorProcessEdit, duckingTab));
-
-    duckedVolumeSpin = new QSpinBox(this);
-    duckedVolumeSpin->setRange(0, 100);
-    duckedVolumeSpin->setSuffix("%");
-    duckingLayout->addWidget(createRow("Ducked volume", duckedVolumeSpin, duckingTab));
-
-    thresholdSpin = new QSpinBox(this);
-    thresholdSpin->setRange(1, 100);
-    thresholdSpin->setSuffix("%");
-    duckingLayout->addWidget(createRow("Trigger level", thresholdSpin, duckingTab));
-
-    cooldownSpin = new QSpinBox(this);
-    cooldownSpin->setRange(0, 10000);
-    cooldownSpin->setSuffix(" ms");
-    duckingLayout->addWidget(createRow("Cooldown", cooldownSpin, duckingTab));
-
-    releaseHoldSpin = new QSpinBox(this);
-    releaseHoldSpin->setRange(0, 10000);
-    releaseHoldSpin->setSuffix(" ms");
-    duckingLayout->addWidget(createRow("Silence hold", releaseHoldSpin, duckingTab));
-
-    audioDuckerStatusLabel = new QLabel(this);
-    audioDuckerStatusLabel->setWordWrap(true);
-    duckingLayout->addWidget(audioDuckerStatusLabel);
-    duckingLayout->addStretch();
-    tabs->addTab(duckingTab, "Ducking");
-    #endif
-
     QWidget *overlayTab = new QWidget(this);
     QFormLayout *overlayLayout = new QFormLayout(overlayTab);
     overlayLayout->setContentsMargins(12, 12, 12, 12);
@@ -193,26 +143,16 @@ SettingsDialog::SettingsDialog(QWidget *parent) : QDialog(parent) {
     useShiftFineAdjustCheck = new QCheckBox("Use Shift for fine adjustment", this);
     QLabel *mainKeyHint = new QLabel("Main key is a virtual key code (VK) value, e.g. 0x14 for Caps Lock (default) or 0x41 for 'A'. On macOS it is translated to the matching mac key (Caps Lock is supported).\nHold Shift with the main key to Skip, or Ctrl for Previous.", this);
     mainKeyHint->setWordWrap(true);
-    #ifdef _WIN32
-    QLabel *duckingToggleHint = new QLabel("Global ducking toggle: Alt+D", this);
-    duckingToggleHint->setWordWrap(true);
-    #endif
 
     keybindsLayout->addRow("Coarse step", coarseStepSpin);
     keybindsLayout->addRow("Fine step", fineStepSpin);
     keybindsLayout->addRow("Main key (VK)", mainKeyEdit);
     keybindsLayout->addRow(QString(), useShiftFineAdjustCheck);
     keybindsLayout->addRow(QString(), mainKeyHint);
-    #ifdef _WIN32
-    keybindsLayout->addRow(QString(), duckingToggleHint);
-    #endif
     tabs->addTab(keybindsTab, "Keybinds");
 
     layout->addWidget(tabs);
 
-    #ifdef _WIN32
-    wireAudioDuckerControls();
-    #endif
     wireOverlayControls();
     wireKeybindControls();
 
@@ -256,57 +196,6 @@ void SettingsDialog::appendLog(const QString &text) {
         logViewer->appendPlainText(text);
     }
 }
-
-#ifdef _WIN32
-void SettingsDialog::setAudioDuckerSettings(const AudioDuckerSettings &settings) {
-    audioDuckerEnabledCheck->setChecked(settings.enabled);
-    monitorEntireOutputCheck->setChecked(settings.monitorEntireOutput);
-    instantDuckCheck->setChecked(settings.instantDuck);
-    const int deviceIndex = monitorDeviceCombo->findData(settings.monitorDeviceId);
-    if (deviceIndex >= 0) {
-        monitorDeviceCombo->setCurrentIndex(deviceIndex);
-    }
-    monitorProcessEdit->setText(settings.monitorProcessName);
-    duckedVolumeSpin->setValue(settings.duckedVolume);
-    thresholdSpin->setValue(settings.thresholdPercent);
-    cooldownSpin->setValue(settings.cooldownMs);
-    releaseHoldSpin->setValue(settings.releaseHoldMs);
-    monitorProcessEdit->setEnabled(!settings.monitorEntireOutput);
-}
-
-AudioDuckerSettings SettingsDialog::audioDuckerSettings() const {
-    AudioDuckerSettings settings;
-    settings.enabled = audioDuckerEnabledCheck->isChecked();
-    settings.monitorEntireOutput = monitorEntireOutputCheck->isChecked();
-    settings.instantDuck = instantDuckCheck->isChecked();
-    settings.monitorDeviceId = monitorDeviceCombo->currentData().toString();
-    settings.monitorDeviceName = monitorDeviceCombo->currentText();
-    settings.monitorProcessName = monitorProcessEdit->text().trimmed();
-    settings.duckedVolume = duckedVolumeSpin->value();
-    settings.thresholdPercent = thresholdSpin->value();
-    settings.cooldownMs = cooldownSpin->value();
-    settings.releaseHoldMs = releaseHoldSpin->value();
-    return settings;
-}
-
-void SettingsDialog::setAudioDuckerStatusText(const QString &statusText) {
-    audioDuckerStatusLabel->setText(statusText);
-}
-
-void SettingsDialog::setAvailableAudioDevices(const QVector<AudioOutputDeviceOption> &devices) {
-    const QString selectedId = monitorDeviceCombo->currentData().toString();
-    monitorDeviceCombo->clear();
-    monitorDeviceCombo->addItem("Default system output", "");
-    for (const AudioOutputDeviceOption &device : devices) {
-        monitorDeviceCombo->addItem(device.name, device.id);
-    }
-
-    const int selectedIndex = monitorDeviceCombo->findData(selectedId);
-    if (selectedIndex >= 0) {
-        monitorDeviceCombo->setCurrentIndex(selectedIndex);
-    }
-}
-#endif
 
 void SettingsDialog::setOverlaySettings(const OverlaySettings &settings) {
     backgroundColorEdit->setText(settings.backgroundColor);
@@ -356,23 +245,6 @@ KeybindSettings SettingsDialog::keybindSettings() const {
     settings.useShiftForFineAdjust = useShiftFineAdjustCheck->isChecked();
     return settings;
 }
-
-#ifdef _WIN32
-void SettingsDialog::wireAudioDuckerControls() {
-    connect(audioDuckerEnabledCheck, &QCheckBox::toggled, this, &SettingsDialog::audioDuckerSettingsChanged);
-    connect(monitorEntireOutputCheck, &QCheckBox::toggled, this, [this](bool checked) {
-        monitorProcessEdit->setEnabled(!checked);
-        emit audioDuckerSettingsChanged();
-    });
-    connect(instantDuckCheck, &QCheckBox::toggled, this, &SettingsDialog::audioDuckerSettingsChanged);
-    connect(monitorDeviceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
-    connect(monitorProcessEdit, &QLineEdit::textChanged, this, &SettingsDialog::audioDuckerSettingsChanged);
-    connect(duckedVolumeSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
-    connect(thresholdSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
-    connect(cooldownSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
-    connect(releaseHoldSpin, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int) { emit audioDuckerSettingsChanged(); });
-}
-#endif
 
 void SettingsDialog::wireOverlayControls() {
     connect(backgroundColorEdit, &QLineEdit::textChanged, this, [this](const QString &) { updateColorPreview(backgroundColorEdit, backgroundColorPreview); emit overlaySettingsChanged(); });

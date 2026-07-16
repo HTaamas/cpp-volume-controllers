@@ -1,6 +1,6 @@
 # SpotifyVol
 
-A lightweight, cross-platform Spotify controller with a custom volume OSD and audio ducking. It runs in your system tray and uses global media keys to control Spotify's playback volume, not your system volume.
+A lightweight, cross-platform Spotify controller with a custom volume OSD. It runs in your system tray and uses global media keys to control Spotify's playback volume, not your system volume.
 
 
 
@@ -8,7 +8,6 @@ A lightweight, cross-platform Spotify controller with a custom volume OSD and au
 
 *   **Global Hotkey Control**: Intercepts system media keys (Volume Up/Down) to control Spotify's application volume directly. Use Shift for fine-grained adjustments.
 *   **Customizable OSD**: A modern, non-intrusive On-Screen Display shows track information, album art, and the current volume level without stealing focus.
-*   **Audio Ducker (Windows only)**: Automatically lowers Spotify's volume when other applications (e.g., Discord, games) are making noise. The volume is restored after a configurable period of silence.
 *   **System Tray Integration**: Control playback and access settings from a convenient tray icon.
 *   **Cross-Platform**: A single codebase supporting Windows, macOS, and Linux (X11).
 *   **No-Focus Overlay**: The OSD appears over your active window (including full-screen games) without interrupting your workflow.
@@ -79,17 +78,6 @@ The final executable will be at `build/SpotifyVol`. Global key interception is s
 3.  Once authorized, the app will run in the system tray.
 4.  Use your keyboard's media keys (Volume Up/Down) to control Spotify's volume. The OSD will appear.
 5.  Right-click the tray icon to access settings, re-link your account, or quit the application.
-
-## Audio Ducker (Windows)
-
-The Audio Ducker is a powerful feature for gamers or anyone who uses voice chat. It monitors system audio and automatically reduces Spotify's volume when another application is making sound, then restores it afterward.
-
-**Configuration:**
-
-*   **Mode**:
-    *   **Monitor Process**: Ducks Spotify only when a specific application (e.g., `Discord.exe`, `CSGO.exe`) is making sound.
-    *   **Monitor Entire Output**: Ducks Spotify whenever *any* sound is played on a specific audio device.
-*   **Settings**: All parameters, including ducked volume, thresholds, and timings, are configurable in the app's settings dialog.
 
 ## License
 

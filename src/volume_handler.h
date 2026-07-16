@@ -31,13 +31,11 @@ signals:
     void toggleMusic();
     void nextTrack();
     void prevTrack();
-    void toggleDuckingRequested();
 
 private:
 #ifdef _WIN32
     static LRESULT CALLBACK LowLevelKeyboardProc(int nCode, WPARAM wParam, LPARAM lParam);
     static HHOOK hHook;
-    static bool duckingToggleChordDown;
 #endif
 #ifdef __APPLE__
     static CGEventRef MacEventTapCallback(CGEventTapProxy proxy, CGEventType type, CGEventRef event, void *refcon);

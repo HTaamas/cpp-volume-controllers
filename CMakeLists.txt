@@ -119,8 +119,6 @@ set(SOURCES
     src/tray_manager.h
     src/volume_handler.h
     src/volume_handler.cpp
-    src/implementation/audio_ducker.h
-    src/implementation/audio_ducker.cpp
     src/implementation/app_settings.h
     src/implementation/app_settings.cpp
     src/implementation/settings_dialog.h

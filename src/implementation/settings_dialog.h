@@ -2,9 +2,6 @@
 #define SETTINGS_DIALOG_H
 
 #include <QDialog>
-#ifdef _WIN32
-#include "audio_ducker.h"
-#endif
 #include "app_settings.h"
 
 class QLabel;
@@ -13,7 +10,6 @@ class QCheckBox;
 class QLineEdit;
 class QSpinBox;
 class QTabWidget;
-class QComboBox;
 
 class QPlainTextEdit;
 
@@ -27,12 +23,6 @@ public:
     void setCurrentPollingIntervalText(const QString &text);
     void setTimeTillNextPollText(const QString &text);
     void appendLog(const QString &text);
-    #ifdef _WIN32
-    void setAudioDuckerSettings(const AudioDuckerSettings &settings);
-    AudioDuckerSettings audioDuckerSettings() const;
-    void setAudioDuckerStatusText(const QString &statusText);
-    void setAvailableAudioDevices(const QVector<AudioOutputDeviceOption> &devices);
-    #endif
     void setOverlaySettings(const OverlaySettings &settings);
     OverlaySettings overlaySettings() const;
     void setKeybindSettings(const KeybindSettings &settings);
@@ -43,17 +33,11 @@ public:
 
 signals:
     void connectSpotifyRequested();
-    #ifdef _WIN32
-    void audioDuckerSettingsChanged();
-    #endif
     void overlaySettingsChanged();
     void keybindSettingsChanged();
 
 private:
     void refreshUi();
-    #ifdef _WIN32
-    void wireAudioDuckerControls();
-    #endif
     void wireOverlayControls();
     void wireKeybindControls();
     QWidget *createColorFieldRow(QLineEdit *edit, QLabel *preview, QWidget *parent = nullptr);
@@ -64,22 +48,8 @@ private:
     QLabel *currentPollingIntervalLabel;
     QLabel *timeTillNextPollLabel;
     QLabel *helpTextLabel;
-    #ifdef _WIN32
-    QLabel *audioDuckerStatusLabel;
-    #endif
     QPushButton *connectButton;
     QTabWidget *tabs;
-    #ifdef _WIN32
-    QCheckBox *audioDuckerEnabledCheck;
-    QCheckBox *monitorEntireOutputCheck;
-    QCheckBox *instantDuckCheck;
-    QComboBox *monitorDeviceCombo;
-    QLineEdit *monitorProcessEdit;
-    QSpinBox *duckedVolumeSpin;
-    QSpinBox *thresholdSpin;
-    QSpinBox *cooldownSpin;
-    QSpinBox *releaseHoldSpin;
-    #endif
     QLineEdit *backgroundColorEdit;
     QLabel *backgroundColorPreview;
     QLineEdit *borderColorEdit;

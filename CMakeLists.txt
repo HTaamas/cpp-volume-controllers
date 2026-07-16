@@ -18,9 +18,52 @@ if(UNIX AND NOT APPLE)
     find_package(X11 REQUIRED)
 endif()
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(PC_PROTOBUF REQUIRED protobuf)
-find_package(ZLIB REQUIRED)
+find_package(PkgConfig QUIET)
+if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PC_PROTOBUF QUIET protobuf)
+endif()
+
+if(PC_PROTOBUF_FOUND)
+    set(PROTOBUF_INCLUDE_DIRS ${PC_PROTOBUF_INCLUDE_DIRS})
+    set(PROTOBUF_LDFLAGS ${PC_PROTOBUF_LDFLAGS})
+    set(PROTOC_EXECUTABLE protoc)
+else()
+    include(FetchContent)
+    message(STATUS "Protobuf not found via pkg-config. Fetching from GitHub...")
+    FetchContent_Declare(
+        protobuf
+        GIT_REPOSITORY https://github.com/protocolbuffers/protobuf.git
+        GIT_TAG        v21.12
+        SOURCE_SUBDIR  cmake
+    )
+    set(protobuf_BUILD_TESTS OFF CACHE BOOL "Disable tests" FORCE)
+    set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "Build protoc" FORCE)
+    set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "Build static" FORCE)
+    set(protobuf_MSVC_STATIC_RUNTIME OFF CACHE BOOL "" FORCE)
+    set(protobuf_WITH_ZLIB OFF CACHE BOOL "Disable ZLIB in protobuf" FORCE)
+    FetchContent_MakeAvailable(protobuf)
+
+    set(PROTOBUF_LINK_TARGET libprotobuf)
+    set(PROTOC_EXECUTABLE protoc)
+    set(PROTOBUF_INCLUDE_DIRS "${protobuf_SOURCE_DIR}/src")
+endif()
+find_package(ZLIB QUIET)
+if(NOT ZLIB_FOUND)
+    message(STATUS "ZLIB not found. Fetching from GitHub...")
+    include(FetchContent)
+    FetchContent_Declare(
+        ZLIB
+        GIT_REPOSITORY https://github.com/madler/zlib.git
+        GIT_TAG        v1.3.1
+    )
+    FetchContent_MakeAvailable(ZLIB)
+    if(TARGET zlibstatic)
+        add_library(ZLIB::ZLIB ALIAS zlibstatic)
+    elseif(TARGET zlib)
+        add_library(ZLIB::ZLIB ALIAS zlib)
+    endif()
+    set(ZLIB_INCLUDE_DIRS "${zlib_SOURCE_DIR}" "${zlib_BINARY_DIR}")
+endif()
 set(PROTO_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/src/proto")
 set(PROTO_BIN_DIR "${CMAKE_CURRENT_BINARY_DIR}/proto_gen")
 file(MAKE_DIRECTORY ${PROTO_BIN_DIR})
@@ -28,6 +71,11 @@ file(GLOB_RECURSE PROTO_FILES "${PROTO_SRC_DIR}/*.proto")
 
 set(PROTO_SRCS)
 set(PROTO_HDRS)
+
+set(PROTOC_INCLUDES "-I${PROTO_SRC_DIR}")
+if(protobuf_SOURCE_DIR)
+    list(APPEND PROTOC_INCLUDES "-I${protobuf_SOURCE_DIR}/src")
+endif()
 
 foreach(PROTO_FILE IN LISTS PROTO_FILES)
     file(RELATIVE_PATH REL_PROTO_FILE ${PROTO_SRC_DIR} ${PROTO_FILE})
@@ -42,8 +90,8 @@ foreach(PROTO_FILE IN LISTS PROTO_FILES)
     
     add_custom_command(
         OUTPUT ${GENERATED_CC} ${GENERATED_H}
-        COMMAND protoc
-        ARGS --cpp_out=${PROTO_BIN_DIR} -I${PROTO_SRC_DIR} ${PROTO_FILE}
+        COMMAND ${PROTOC_EXECUTABLE}
+        ARGS --cpp_out=${PROTO_BIN_DIR} ${PROTOC_INCLUDES} ${PROTO_FILE}
         DEPENDS ${PROTO_FILE}
         COMMENT "Compiling ${REL_PROTO_FILE}..."
         VERBATIM
@@ -132,7 +180,8 @@ add_executable(${PROJECT_NAME} ${SOURCES})
 target_include_directories(${PROJECT_NAME} PRIVATE
     "${PROTO_BIN_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
-    ${PC_PROTOBUF_INCLUDE_DIRS}
+    ${PROTOBUF_INCLUDE_DIRS}
+    ${ZLIB_INCLUDE_DIRS}
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
@@ -141,8 +190,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     Qt6::Gui
     Qt6::WebSockets
     ZLIB::ZLIB
+    ${PROTOBUF_LINK_TARGET}
 )
-target_link_options(${PROJECT_NAME} PRIVATE ${PC_PROTOBUF_LDFLAGS})
+if(PROTOBUF_LDFLAGS)
+    target_link_options(${PROJECT_NAME} PRIVATE ${PROTOBUF_LDFLAGS})
+endif()
 
 if(UNIX AND NOT APPLE)
     target_include_directories(${PROJECT_NAME} PRIVATE ${X11_INCLUDE_DIR})

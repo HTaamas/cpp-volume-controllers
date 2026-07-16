@@ -5,8 +5,8 @@ Your Qt installation is MinGW-based, so use the MinGW compiler toolchain.
 
 ## Prerequisites
 
-- Qt MinGW installed at: `C:\Qt\6.10.2\mingw_64`
-- MinGW toolchain installed at: `C:\Qt\Tools\mingw1310_64\bin`
+- Qt MinGW installed at: `D:\Qt\6.11.1\mingw_64`
+- MinGW toolchain installed at: `D:\Qt\Tools\mingw1310_64\bin`
 - CMake and Ninja available in PATH
 
 ## Build Commands (PowerShell)
@@ -15,19 +15,19 @@ Run these from the project root.
 
 ```powershell
 # 1) Ensure MinGW runtime tools are available in this shell session
-$env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
+$env:Path = "D:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 
 # 2) Configure a MinGW build directory
 cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
-  -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
-  -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
+  -DCMAKE_C_COMPILER=D:/Qt/Tools/mingw1310_64/bin/gcc.exe `
+  -DCMAKE_CXX_COMPILER=D:/Qt/Tools/mingw1310_64/bin/g++.exe
 
 # 3) Build
 cmake --build build -j
 
 # 4) Deploy Qt runtime DLLs next to the exe
-C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
+D:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
 ```
 
 Output executable:
@@ -37,9 +37,9 @@ Output executable:
 ## Rebuild After Changes
 
 ```powershell
-$env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
+$env:Path = "D:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 cmake --build build -j
-C:/Qt/6.10.2/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
+D:/Qt/6.11.1/mingw_64/bin/windeployqt.exe --release --force --dir build build/SpotifyVol.exe
 ```
 
 ## Run
@@ -54,11 +54,11 @@ If CMake cache/toolchain gets mixed up, delete and reconfigure:
 
 ```powershell
 Remove-Item -Recurse -Force build
-$env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
+$env:Path = "D:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 cmake -S . -B build -G Ninja `
   -DCMAKE_BUILD_TYPE=Debug `
-  -DCMAKE_C_COMPILER=C:/Qt/Tools/mingw1310_64/bin/gcc.exe `
-  -DCMAKE_CXX_COMPILER=C:/Qt/Tools/mingw1310_64/bin/g++.exe
+  -DCMAKE_C_COMPILER=D:/Qt/Tools/mingw1310_64/bin/gcc.exe `
+  -DCMAKE_CXX_COMPILER=D:/Qt/Tools/mingw1310_64/bin/g++.exe
 cmake --build build -j
 ```
 
@@ -74,7 +74,7 @@ cmake --build build -j
 - If compiler checks fail unexpectedly, make sure MinGW is on PATH in the same terminal session:
 
 ```powershell
-$env:Path = "C:\Qt\Tools\mingw1310_64\bin;" + $env:Path
+$env:Path = "D:\Qt\Tools\mingw1310_64\bin;" + $env:Path
 ```
 
 # macOS Build
